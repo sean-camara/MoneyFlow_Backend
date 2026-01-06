@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import { fromNodeHeaders } from 'better-auth/node';
 import { Auth } from '../config/auth.js';
 
 // Extend Express Request to include user and session
@@ -23,21 +22,52 @@ declare global {
   }
 }
 
+// Helper to convert Express request to headers for Better Auth
+function getHeadersFromRequest(req: Request): Headers {
+  const headers = new Headers();
+  
+  // Copy all headers
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value) {
+      if (Array.isArray(value)) {
+        value.forEach(v => headers.append(key, v));
+      } else {
+        headers.set(key, value);
+      }
+    }
+  }
+  
+  // Ensure cookies are included
+  if (req.headers.cookie) {
+    headers.set('cookie', req.headers.cookie);
+  }
+  
+  return headers;
+}
+
 // Authentication middleware using Better Auth
 export function createAuthMiddleware(auth: Auth) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Debug logging
+      console.log('🔐 Auth check - cookies:', req.headers.cookie ? 'present' : 'missing');
+      
+      const headers = getHeadersFromRequest(req);
+      
       const session = await auth.api.getSession({
-        headers: fromNodeHeaders(req.headers),
+        headers: headers,
       });
 
       if (!session) {
+        console.log('🔐 Auth check - no session found');
         return res.status(401).json({
           success: false,
           error: 'Unauthorized',
           message: 'Please sign in to continue'
         });
       }
+
+      console.log('🔐 Auth check - session found for user:', session.user.id);
 
       // Attach user and session to request
       req.user = {
@@ -70,8 +100,10 @@ export function createAuthMiddleware(auth: Auth) {
 export function createOptionalAuthMiddleware(auth: Auth) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const headers = getHeadersFromRequest(req);
+      
       const session = await auth.api.getSession({
-        headers: fromNodeHeaders(req.headers),
+        headers: headers,
       });
 
       if (session) {
