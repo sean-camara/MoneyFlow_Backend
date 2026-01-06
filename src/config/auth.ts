@@ -77,9 +77,26 @@ export function createAuth() {
     session: {
       expiresIn: 60 * 60 * 24 * 7, // 7 days
       updateAge: 60 * 60 * 24, // 1 day
+      cookieCache: {
+        enabled: true,
+        maxAge: 60 * 5, // 5 minutes
+      },
+    },
+    advanced: {
+      crossSubDomainCookies: {
+        enabled: true,
+      },
+      defaultCookieAttributes: {
+        sameSite: 'none',
+        secure: true,
+        httpOnly: true,
+        path: '/',
+      },
     },
     trustedOrigins: [
       frontendUrl,
+      'https://money-flow-six.vercel.app',
+      'https://flowmoney-backend.onrender.com',
     ],
   });
 }
