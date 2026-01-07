@@ -42,7 +42,38 @@ function getHeadersFromRequest(req: Request): Headers {
     headers.set('cookie', req.headers.cookie);
   }
   
+  // Also include Authorization header if present (for Bearer token auth)
+  if (req.headers.authorization) {
+    headers.set('authorization', req.headers.authorization);
+  }
+  
   return headers;
+}
+
+// Verify session token directly from database
+async function verifyTokenFromDb(token: string): Promise<any | null> {
+  try {
+    const { getDb } = await import('../config/database.js');
+    const db = getDb();
+    
+    // Find session by token
+    const session = await db.collection('session').findOne({ token });
+    if (!session) return null;
+    
+    // Check if session is expired
+    if (new Date(session.expiresAt) < new Date()) {
+      return null;
+    }
+    
+    // Get user
+    const user = await db.collection('user').findOne({ id: session.userId });
+    if (!user) return null;
+    
+    return { session, user };
+  } catch (error) {
+    console.error('Token verification error:', error);
+    return null;
+  }
 }
 
 // Authentication middleware using Better Auth
@@ -50,15 +81,34 @@ export function createAuthMiddleware(auth: Auth) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Debug logging
-      console.log('🔐 Auth check - cookies:', req.headers.cookie ? 'present' : 'missing');
+      const hasCookies = !!req.headers.cookie;
+      const hasBearer = !!req.headers.authorization?.startsWith('Bearer ');
+      console.log('🔐 Auth check - cookies:', hasCookies ? 'present' : 'missing', '| bearer:', hasBearer ? 'present' : 'missing');
       
-      const headers = getHeadersFromRequest(req);
+      let sessionData = null;
       
-      const session = await auth.api.getSession({
-        headers: headers,
-      });
+      // First try Bearer token if present
+      if (hasBearer) {
+        const token = req.headers.authorization!.split(' ')[1];
+        sessionData = await verifyTokenFromDb(token);
+        if (sessionData) {
+          console.log('🔐 Auth via Bearer token for user:', sessionData.user.id);
+        }
+      }
+      
+      // Fall back to Better Auth session (cookies)
+      if (!sessionData) {
+        const headers = getHeadersFromRequest(req);
+        const session = await auth.api.getSession({
+          headers: headers,
+        });
+        if (session) {
+          sessionData = { session: session.session, user: session.user };
+          console.log('🔐 Auth via cookies for user:', session.user.id);
+        }
+      }
 
-      if (!session) {
+      if (!sessionData) {
         console.log('🔐 Auth check - no session found');
         return res.status(401).json({
           success: false,
@@ -67,21 +117,21 @@ export function createAuthMiddleware(auth: Auth) {
         });
       }
 
-      console.log('🔐 Auth check - session found for user:', session.user.id);
+      console.log('🔐 Auth check - session found for user:', sessionData.user.id);
 
       // Attach user and session to request
       req.user = {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.name,
-        primaryCurrency: (session.user as any).primaryCurrency,
-        notificationsEnabled: (session.user as any).notificationsEnabled,
+        id: sessionData.user.id,
+        email: sessionData.user.email,
+        name: sessionData.user.name,
+        primaryCurrency: (sessionData.user as any).primaryCurrency,
+        notificationsEnabled: (sessionData.user as any).notificationsEnabled,
       };
       req.session = {
-        id: session.session.id,
-        userId: session.session.userId,
-        token: session.session.token,
-        expiresAt: session.session.expiresAt,
+        id: sessionData.session.id,
+        userId: sessionData.session.userId,
+        token: sessionData.session.token,
+        expiresAt: sessionData.session.expiresAt,
       };
 
       next();
@@ -100,25 +150,38 @@ export function createAuthMiddleware(auth: Auth) {
 export function createOptionalAuthMiddleware(auth: Auth) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const headers = getHeadersFromRequest(req);
+      let sessionData = null;
       
-      const session = await auth.api.getSession({
-        headers: headers,
-      });
+      // Try Bearer token first
+      if (req.headers.authorization?.startsWith('Bearer ')) {
+        const token = req.headers.authorization.split(' ')[1];
+        sessionData = await verifyTokenFromDb(token);
+      }
+      
+      // Fall back to cookies
+      if (!sessionData) {
+        const headers = getHeadersFromRequest(req);
+        const session = await auth.api.getSession({
+          headers: headers,
+        });
+        if (session) {
+          sessionData = { session: session.session, user: session.user };
+        }
+      }
 
-      if (session) {
+      if (sessionData) {
         req.user = {
-          id: session.user.id,
-          email: session.user.email,
-          name: session.user.name,
-          primaryCurrency: (session.user as any).primaryCurrency,
-          notificationsEnabled: (session.user as any).notificationsEnabled,
+          id: sessionData.user.id,
+          email: sessionData.user.email,
+          name: sessionData.user.name,
+          primaryCurrency: (sessionData.user as any).primaryCurrency,
+          notificationsEnabled: (sessionData.user as any).notificationsEnabled,
         };
         req.session = {
-          id: session.session.id,
-          userId: session.session.userId,
-          token: session.session.token,
-          expiresAt: session.session.expiresAt,
+          id: sessionData.session.id,
+          userId: sessionData.session.userId,
+          token: sessionData.session.token,
+          expiresAt: sessionData.session.expiresAt,
         };
       }
 
