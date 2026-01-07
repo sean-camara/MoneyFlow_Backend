@@ -35,9 +35,32 @@ async function startServer() {
     initializeEmailService();
     initializeSocketService(httpServer);
 
-    // CORS configuration
+    // CORS configuration - allow production URL and Vercel preview deployments
+    const allowedOrigins = [
+      process.env.FRONTEND_URL || 'http://localhost:5173',
+      'http://localhost:5173',
+      'http://localhost:3000',
+    ];
+
     app.use(cors({
-      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, etc.)
+        if (!origin) return callback(null, true);
+        
+        // Allow exact matches
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        
+        // Allow all Vercel preview deployments (*.vercel.app)
+        if (origin.endsWith('.vercel.app')) {
+          return callback(null, true);
+        }
+        
+        // Block other origins
+        console.log('🚫 CORS blocked origin:', origin);
+        callback(new Error('Not allowed by CORS'));
+      },
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization']
