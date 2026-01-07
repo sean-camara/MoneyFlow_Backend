@@ -1,6 +1,23 @@
 import { Request, Response, NextFunction } from 'express';
 import { Auth } from '../config/auth.js';
 
+// Session data type
+interface SessionData {
+  session: {
+    id: string;
+    userId: string;
+    token: string;
+    expiresAt: Date;
+  };
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    primaryCurrency?: string;
+    notificationsEnabled?: boolean;
+  };
+}
+
 // Extend Express Request to include user and session
 declare global {
   namespace Express {
@@ -28,12 +45,10 @@ function getHeadersFromRequest(req: Request): Headers {
   
   // Copy all headers
   for (const [key, value] of Object.entries(req.headers)) {
-    if (value) {
-      if (Array.isArray(value)) {
-        value.forEach(v => headers.append(key, v));
-      } else {
-        headers.set(key, value);
-      }
+    if (value && typeof value === 'string') {
+      headers.set(key, value);
+    } else if (Array.isArray(value)) {
+      value.forEach(v => headers.append(key, v));
     }
   }
   
@@ -51,7 +66,7 @@ function getHeadersFromRequest(req: Request): Headers {
 }
 
 // Verify session token directly from database
-async function verifyTokenFromDb(token: string): Promise<any | null> {
+async function verifyTokenFromDb(token: string): Promise<SessionData | null> {
   try {
     const { getDb } = await import('../config/database.js');
     const db = getDb();
@@ -68,8 +83,22 @@ async function verifyTokenFromDb(token: string): Promise<any | null> {
     // Get user
     const user = await db.collection('user').findOne({ id: session.userId });
     if (!user) return null;
-    
-    return { session, user };
+
+    return {
+      session: {
+        id: session.id,
+        userId: session.userId,
+        token: session.token,
+        expiresAt: session.expiresAt,
+      },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        primaryCurrency: user.primaryCurrency,
+        notificationsEnabled: user.notificationsEnabled,
+      }
+    };
   } catch (error) {
     console.error('Token verification error:', error);
     return null;
@@ -85,7 +114,7 @@ export function createAuthMiddleware(auth: Auth) {
       const hasBearer = !!req.headers.authorization?.startsWith('Bearer ');
       console.log('🔐 Auth check - cookies:', hasCookies ? 'present' : 'missing', '| bearer:', hasBearer ? 'present' : 'missing');
       
-      let sessionData = null;
+      let sessionData: SessionData | null = null;
       
       // First try Bearer token if present
       if (hasBearer) {
@@ -103,7 +132,21 @@ export function createAuthMiddleware(auth: Auth) {
           headers: headers,
         });
         if (session) {
-          sessionData = { session: session.session, user: session.user };
+          sessionData = {
+            session: {
+              id: session.session.id,
+              userId: session.session.userId,
+              token: session.session.token,
+              expiresAt: session.session.expiresAt,
+            },
+            user: {
+              id: session.user.id,
+              email: session.user.email,
+              name: session.user.name,
+              primaryCurrency: (session.user as any).primaryCurrency,
+              notificationsEnabled: (session.user as any).notificationsEnabled,
+            }
+          };
           console.log('🔐 Auth via cookies for user:', session.user.id);
         }
       }
@@ -120,19 +163,8 @@ export function createAuthMiddleware(auth: Auth) {
       console.log('🔐 Auth check - session found for user:', sessionData.user.id);
 
       // Attach user and session to request
-      req.user = {
-        id: sessionData.user.id,
-        email: sessionData.user.email,
-        name: sessionData.user.name,
-        primaryCurrency: (sessionData.user as any).primaryCurrency,
-        notificationsEnabled: (sessionData.user as any).notificationsEnabled,
-      };
-      req.session = {
-        id: sessionData.session.id,
-        userId: sessionData.session.userId,
-        token: sessionData.session.token,
-        expiresAt: sessionData.session.expiresAt,
-      };
+      req.user = sessionData.user;
+      req.session = sessionData.session;
 
       next();
     } catch (error) {
@@ -150,7 +182,7 @@ export function createAuthMiddleware(auth: Auth) {
 export function createOptionalAuthMiddleware(auth: Auth) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      let sessionData = null;
+      let sessionData: SessionData | null = null;
       
       // Try Bearer token first
       if (req.headers.authorization?.startsWith('Bearer ')) {
@@ -165,24 +197,27 @@ export function createOptionalAuthMiddleware(auth: Auth) {
           headers: headers,
         });
         if (session) {
-          sessionData = { session: session.session, user: session.user };
+          sessionData = {
+            session: {
+              id: session.session.id,
+              userId: session.session.userId,
+              token: session.session.token,
+              expiresAt: session.session.expiresAt,
+            },
+            user: {
+              id: session.user.id,
+              email: session.user.email,
+              name: session.user.name,
+              primaryCurrency: (session.user as any).primaryCurrency,
+              notificationsEnabled: (session.user as any).notificationsEnabled,
+            }
+          };
         }
       }
 
       if (sessionData) {
-        req.user = {
-          id: sessionData.user.id,
-          email: sessionData.user.email,
-          name: sessionData.user.name,
-          primaryCurrency: (sessionData.user as any).primaryCurrency,
-          notificationsEnabled: (sessionData.user as any).notificationsEnabled,
-        };
-        req.session = {
-          id: sessionData.session.id,
-          userId: sessionData.session.userId,
-          token: sessionData.session.token,
-          expiresAt: sessionData.session.expiresAt,
-        };
+        req.user = sessionData.user;
+        req.session = sessionData.session;
       }
 
       next();
