@@ -93,18 +93,15 @@ export function createAuth() {
         path: '/',
       },
     },
-    trustedOrigins: (origin) => {
-      // Allow configured frontend URL
-      if (origin === frontendUrl) return true;
-      // Allow production URLs
-      if (origin === 'https://money-flow-six.vercel.app') return true;
-      if (origin === 'https://flowmoney-backend.onrender.com') return true;
-      // Allow all Vercel preview deployments
-      if (origin.endsWith('.vercel.app')) return true;
-      // Allow localhost for development
-      if (origin.startsWith('http://localhost:')) return true;
-      return false;
-    },
+    trustedOrigins: [
+      frontendUrl,
+      'https://money-flow-six.vercel.app',
+      'https://flowmoney-backend.onrender.com',
+      'http://localhost:5173',
+      'http://localhost:3000',
+      // Vercel preview patterns - add common preview URL patterns
+      'https://*.vercel.app',
+    ],
   });
 }
 
