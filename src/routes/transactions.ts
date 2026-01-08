@@ -107,13 +107,15 @@ export function createTransactionRoutes(auth: Auth): Router {
 
       // Send push notifications to other members
       const notificationTitle = type === TransactionType.INCOME ? '💰 Income Added' : '💸 Expense Added';
-      const notificationBody = `${userName} added ${type.toLowerCase()}: ${currency || 'USD'} ${amount} (${category})`;
+      const notificationBody = `${userName} added ${type.toLowerCase()}: ${currency || 'USD'} ${Number(amount).toLocaleString()} (${category})`;
       
       // Fire and forget - don't wait for notifications
       notifyJointAccountMembers(jointAccountId, userId, {
         title: notificationTitle,
         body: notificationBody,
-        data: { transactionId: transaction.id, jointAccountId }
+        icon: '/icon-192.png',
+        tag: `transaction-${transaction.id}`,
+        data: { type: 'transaction', transactionId: transaction.id, jointAccountId, url: '/transactions' }
       }).catch(err => console.error('Notification error:', err));
 
       res.status(201).json({ success: true, data: transaction });

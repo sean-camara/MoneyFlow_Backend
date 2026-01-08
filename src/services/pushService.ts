@@ -1,6 +1,7 @@
 import webPush from 'web-push';
 import { getDb } from '../config/database.js';
 import { PushSubscriptionData, NotificationPayload, JointAccountMember } from '../types/index.js';
+import { sendFcmNotification, isFirebaseInitialized } from './firebaseService.js';
 
 // Initialize web-push with VAPID keys
 export function initializePushService(): void {
@@ -9,13 +10,12 @@ export function initializePushService(): void {
   const subject = process.env.VAPID_SUBJECT || 'mailto:admin@flowmoney.app';
 
   if (!publicKey || !privateKey) {
-    console.warn('⚠️ VAPID keys not configured. Push notifications will not work.');
+    console.warn('⚠️ VAPID keys not configured. Legacy push notifications will not work.');
     console.warn('Run: npm run generate-vapid to generate keys');
-    return;
+  } else {
+    webPush.setVapidDetails(subject, publicKey, privateKey);
+    console.log('✅ Legacy VAPID push service initialized');
   }
-
-  webPush.setVapidDetails(subject, publicKey, privateKey);
-  console.log('✅ Push notification service initialized');
 }
 
 // Get VAPID public key for client subscription
@@ -23,23 +23,42 @@ export function getVapidPublicKey(): string {
   return process.env.VAPID_PUBLIC_KEY || '';
 }
 
-// Send push notification to a specific subscription (VAPID)
+// Send push notification - tries FCM first, then falls back to VAPID
 export async function sendPushNotification(
-  subscription: PushSubscriptionData,
+  subscription: PushSubscriptionData | any,
   payload: NotificationPayload
 ): Promise<boolean> {
-  // Check if this is a VAPID subscription
+  // Check if this is an FCM subscription (has fcmToken)
+  if (subscription.fcmToken) {
+    console.log('📱 Sending FCM push notification');
+    const dataPayload: Record<string, string> = {};
+    if (payload.tag) dataPayload.tag = payload.tag;
+    if (payload.data) {
+      Object.entries(payload.data).forEach(([key, value]) => {
+        dataPayload[key] = String(value);
+      });
+    }
+    return await sendFcmNotification(subscription.fcmToken, {
+      title: payload.title,
+      body: payload.body,
+      icon: payload.icon,
+      data: dataPayload
+    });
+  }
+
+  // Fall back to VAPID web-push
   if (!subscription.endpoint || !subscription.keys) {
-    console.warn('Not a VAPID subscription, skipping web-push');
+    console.warn('Invalid subscription format - no FCM token or VAPID keys');
     return false;
   }
 
   if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
-    console.warn('Push notifications not configured');
+    console.warn('VAPID push notifications not configured');
     return false;
   }
 
   try {
+    console.log('📱 Sending VAPID push notification');
     await webPush.sendNotification(
       {
         endpoint: subscription.endpoint,
@@ -49,13 +68,44 @@ export async function sendPushNotification(
     );
     return true;
   } catch (error: any) {
-    console.error('Failed to send push notification:', error.message);
+    console.error('Failed to send VAPID push notification:', error.message);
     
     // If subscription is no longer valid, we should remove it
     if (error.statusCode === 410) {
       console.log('Subscription expired, should be removed');
     }
     
+    return false;
+  }
+}
+
+// Send notification to a user by userId
+export async function sendNotificationToUser(
+  userId: string,
+  payload: NotificationPayload
+): Promise<boolean> {
+  const db = getDb();
+  
+  // Find user with push subscription
+  const user = await db.collection('user').findOne({
+    id: userId,
+    notificationsEnabled: true,
+    pushSubscription: { $exists: true, $ne: null }
+  });
+
+  if (!user?.pushSubscription) {
+    console.log(`No push subscription for user ${userId}`);
+    return false;
+  }
+
+  try {
+    const subscription = typeof user.pushSubscription === 'string'
+      ? JSON.parse(user.pushSubscription)
+      : user.pushSubscription;
+    
+    return await sendPushNotification(subscription, payload);
+  } catch (e) {
+    console.error('Error sending notification to user:', userId, e);
     return false;
   }
 }
@@ -80,6 +130,8 @@ export async function notifyJointAccountMembers(
   
   if (userIds.length === 0) return;
   
+  console.log(`📢 Notifying ${userIds.length} joint account members`);
+  
   // Get users with push subscriptions
   const users = await db.collection('user')
     .find({
@@ -89,6 +141,8 @@ export async function notifyJointAccountMembers(
     })
     .toArray();
   
+  console.log(`📱 ${users.length} users have push subscriptions enabled`);
+  
   // Send notifications to all eligible users
   const notifications = users.map(async (user) => {
     if (user.pushSubscription) {
@@ -96,7 +150,10 @@ export async function notifyJointAccountMembers(
         const subscription = typeof user.pushSubscription === 'string' 
           ? JSON.parse(user.pushSubscription) 
           : user.pushSubscription;
-        await sendPushNotification(subscription, payload);
+        const success = await sendPushNotification(subscription, payload);
+        if (success) {
+          console.log(`✅ Notification sent to user ${user.id}`);
+        }
       } catch (e) {
         console.error('Error sending notification to user:', user.id, e);
       }

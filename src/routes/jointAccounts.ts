@@ -3,6 +3,7 @@ import { getDb } from '../config/database.js';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { requireJointAccountAdmin, requireJointAccountMember } from '../middleware/jointAccount.js';
 import { emitToUser, emitToJointAccount, SocketEvents } from '../services/socketService.js';
+import { sendNotificationToUser, notifyJointAccountMembers } from '../services/pushService.js';
 import { 
   JointAccount, 
   JointAccountMember, 
@@ -302,6 +303,15 @@ export function createJointAccountRoutes(auth: Auth): Router {
           inviterName: inviter?.name || 'Someone',
           inviterEmail: inviter?.email || '',
         });
+
+        // Send push notification for invite
+        await sendNotificationToUser(invitedUser.id, {
+          title: '🤝 Joint Account Invitation',
+          body: `${inviter?.name || 'Someone'} invited you to join "${account?.name || 'a joint account'}"`,
+          icon: '/icon-192.png',
+          tag: `invite-${invite.id}`,
+          data: { type: 'joint-account-invite', inviteId: invite.id, url: '/settings?tab=joint-accounts' }
+        });
       }
 
       res.status(201).json({ success: true, data: invite });
@@ -427,6 +437,15 @@ export function createJointAccountRoutes(auth: Auth): Router {
               userEmail: user?.email || ''
             }
           });
+
+          // Send push notification to admin that member joined
+          await sendNotificationToUser(account.adminUserId, {
+            title: '✅ New Member Joined',
+            body: `${user?.name || 'Someone'} accepted your invitation to "${account.name}"`,
+            icon: '/icon-192.png',
+            tag: `member-joined-${membership.id}`,
+            data: { type: 'member-joined', jointAccountId: invite.jointAccountId, url: '/settings?tab=joint-accounts' }
+          });
         }
       } else {
         // Emit to admin that invite was declined
@@ -435,6 +454,15 @@ export function createJointAccountRoutes(auth: Auth): Router {
             inviteId,
             jointAccountId: invite.jointAccountId,
             invitedEmail: invite.invitedEmail
+          });
+
+          // Send push notification that invite was declined
+          await sendNotificationToUser(account.adminUserId, {
+            title: '❌ Invitation Declined',
+            body: `${invite.invitedEmail} declined to join "${account.name}"`,
+            icon: '/icon-192.png',
+            tag: `invite-declined-${inviteId}`,
+            data: { type: 'invite-declined', jointAccountId: invite.jointAccountId }
           });
         }
       }

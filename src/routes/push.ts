@@ -4,8 +4,10 @@ import {
   getVapidPublicKey, 
   savePushSubscription, 
   removePushSubscription,
-  sendPushNotification
+  sendPushNotification,
+  sendNotificationToUser
 } from '../services/pushService.js';
+import { sendFcmNotification, isFirebaseInitialized } from '../services/firebaseService.js';
 import { Auth } from '../config/auth.js';
 import { getDb } from '../config/database.js';
 
@@ -132,7 +134,7 @@ export function createPushRoutes(auth: Auth): Router {
         console.log('No subscription found anywhere');
         return res.status(400).json({ 
           success: false, 
-          error: 'No push subscription found. Please toggle notifications off and on again.' 
+          error: 'No push subscription found. Please enable notifications in settings first.' 
         });
       }
 
@@ -140,24 +142,41 @@ export function createPushRoutes(auth: Auth): Router {
         ? JSON.parse(subscriptionData) 
         : subscriptionData;
 
-      console.log('Sending push to endpoint:', subscription.endpoint);
+      console.log('Subscription type:', subscription.fcmToken ? 'FCM' : 'VAPID');
 
       const payload = {
         title: 'FlowMoney Test 🎉',
-        body: 'This is a real push notification from the server!',
+        body: 'Push notifications are working! You will receive alerts for joint account activity.',
         icon: '/icon-192.png',
-        tag: 'test-server-' + Date.now(),
-        data: { type: 'test' }
+        tag: 'test-' + Date.now(),
+        data: { type: 'test', url: '/' }
       };
 
-      const success = await sendPushNotification(subscription, payload);
+      let success = false;
+      
+      // Try FCM first if token exists
+      if (subscription.fcmToken && isFirebaseInitialized()) {
+        console.log('Sending via FCM...');
+        success = await sendFcmNotification(subscription.fcmToken, {
+          title: payload.title,
+          body: payload.body,
+          icon: payload.icon,
+          data: { type: 'test', tag: payload.tag }
+        });
+      }
+      
+      // Fall back to VAPID if FCM fails or no FCM token
+      if (!success && subscription.endpoint) {
+        console.log('Sending via VAPID...');
+        success = await sendPushNotification(subscription, payload);
+      }
       
       if (success) {
-        console.log('Push notification sent successfully!');
+        console.log('✅ Push notification sent successfully!');
         res.json({ success: true, message: 'Test notification sent!' });
       } else {
-        console.log('Push notification failed');
-        res.status(500).json({ success: false, error: 'Failed to send notification' });
+        console.log('❌ Push notification failed');
+        res.status(500).json({ success: false, error: 'Failed to send notification. Please re-enable notifications.' });
       }
     } catch (error) {
       console.error('Error sending test notification:', error);

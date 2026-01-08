@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../config/database.js';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { requireJointAccountMember } from '../middleware/jointAccount.js';
+import { notifyJointAccountMembers } from '../services/pushService.js';
 import { Goal } from '../types/index.js';
 import { Auth } from '../config/auth.js';
 
@@ -52,6 +53,9 @@ export function createGoalRoutes(auth: Auth): Router {
         });
       }
 
+      // Get user info for notification
+      const user = await db.collection('user').findOne({ id: userId });
+
       const now = new Date();
       const goal: Goal = {
         id: crypto.randomUUID(),
@@ -66,6 +70,15 @@ export function createGoalRoutes(auth: Auth): Router {
       };
 
       await db.collection<Goal>('goals').insertOne(goal);
+
+      // Notify other members about new goal
+      notifyJointAccountMembers(jointAccountId, userId, {
+        title: '🎯 New Goal Created',
+        body: `${user?.name || 'Someone'} created a new goal: "${name}" - Target: ${currency || 'USD'} ${Number(targetAmount).toLocaleString()}`,
+        icon: '/icon-192.png',
+        tag: `goal-created-${goal.id}`,
+        data: { type: 'goal', goalId: goal.id, jointAccountId, url: '/goals' }
+      }).catch(err => console.error('Goal notification error:', err));
 
       res.status(201).json({ success: true, data: goal });
     } catch (error) {
@@ -99,6 +112,9 @@ export function createGoalRoutes(auth: Auth): Router {
         });
       }
 
+      // Get user info for notification
+      const user = await db.collection('user').findOne({ id: userId });
+
       const updateData: Partial<Goal> = { updatedAt: new Date() };
       if (name !== undefined) updateData.name = name;
       if (targetAmount !== undefined) updateData.targetAmount = Number(targetAmount);
@@ -112,6 +128,34 @@ export function createGoalRoutes(auth: Auth): Router {
       );
 
       const updated = await db.collection<Goal>('goals').findOne({ id: goalId });
+
+      // Check if progress was made on the goal
+      if (currentAmount !== undefined && updated) {
+        const oldProgress = (goal.currentAmount / goal.targetAmount) * 100;
+        const newProgress = (updated.currentAmount / updated.targetAmount) * 100;
+        
+        // Notify if significant progress (crossed a milestone or goal achieved)
+        if (newProgress >= 100 && oldProgress < 100) {
+          // Goal achieved!
+          notifyJointAccountMembers(goal.jointAccountId, userId, {
+            title: '🎉 Goal Achieved!',
+            body: `Congratulations! "${goal.name}" has been completed! Target: ${goal.currency} ${goal.targetAmount.toLocaleString()}`,
+            icon: '/icon-192.png',
+            tag: `goal-achieved-${goal.id}`,
+            data: { type: 'goal-achieved', goalId: goal.id, jointAccountId: goal.jointAccountId, url: '/goals' }
+          }).catch(err => console.error('Goal notification error:', err));
+        } else if (newProgress > oldProgress && (Math.floor(newProgress / 25) > Math.floor(oldProgress / 25))) {
+          // Crossed a 25% milestone
+          const milestone = Math.floor(newProgress / 25) * 25;
+          notifyJointAccountMembers(goal.jointAccountId, userId, {
+            title: '📈 Goal Progress Update',
+            body: `${user?.name || 'Someone'} updated "${goal.name}" - Now at ${milestone}% (${goal.currency} ${updated.currentAmount.toLocaleString()} / ${goal.targetAmount.toLocaleString()})`,
+            icon: '/icon-192.png',
+            tag: `goal-progress-${goal.id}`,
+            data: { type: 'goal-progress', goalId: goal.id, jointAccountId: goal.jointAccountId, url: '/goals' }
+          }).catch(err => console.error('Goal notification error:', err));
+        }
+      }
 
       res.json({ success: true, data: updated });
     } catch (error) {
