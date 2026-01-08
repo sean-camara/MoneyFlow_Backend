@@ -24,39 +24,48 @@ export function createJointAccountRoutes(auth: Auth): Router {
       const userId = req.user!.id;
 
       // Get all memberships for this user
-      const memberships = await db.collection<JointAccountMember>('jointAccountMembers')
+      const userMemberships = await db.collection<JointAccountMember>('jointAccountMembers')
         .find({ userId })
         .toArray();
 
-      const accountIds = memberships.map(m => m.jointAccountId);
+      const accountIds = userMemberships.map(m => m.jointAccountId);
 
       // Get the actual accounts
       const accounts = await db.collection<JointAccount>('jointAccounts')
         .find({ id: { $in: accountIds } })
         .toArray();
 
-      // Get admin user details for each account
+      // Get ALL members for all accounts (not just current user)
+      const allMemberships = await db.collection<JointAccountMember>('jointAccountMembers')
+        .find({ jointAccountId: { $in: accountIds } })
+        .toArray();
+
+      // Get all user IDs we need to look up (admins + members)
       const adminUserIds = accounts.map(a => a.adminUserId);
+      const memberUserIds = allMemberships.map(m => m.userId);
+      const allUserIds = [...new Set([...adminUserIds, ...memberUserIds])];
       
       // Try to find users by 'id' field first
-      let adminUsers = await db.collection('user')
-        .find({ id: { $in: adminUserIds } })
+      let allUsers = await db.collection('user')
+        .find({ id: { $in: allUserIds } })
         .toArray();
       
-      // If not found, try with MongoDB _id field (for older accounts or different ID formats)
-      if (adminUsers.length === 0 && adminUserIds.length > 0) {
+      // If not all found, try with MongoDB _id field
+      if (allUsers.length < allUserIds.length) {
         try {
           const { ObjectId } = await import('mongodb');
-          const objectIds = adminUserIds
+          const foundIds = allUsers.map(u => u.id);
+          const missingIds = allUserIds.filter(id => !foundIds.includes(id));
+          const objectIds = missingIds
             .filter(id => ObjectId.isValid(id))
             .map(id => new ObjectId(id));
           
           if (objectIds.length > 0) {
-            adminUsers = await db.collection('user')
+            const additionalUsers = await db.collection('user')
               .find({ _id: { $in: objectIds } })
               .toArray();
-            // Normalize the id field for consistency
-            adminUsers = adminUsers.map(u => ({ ...u, id: u._id.toString() }));
+            // Normalize and add
+            allUsers = [...allUsers, ...additionalUsers.map(u => ({ ...u, id: u._id.toString() }))];
           }
         } catch (e) {
           console.error('🔍 ObjectId lookup failed:', e);
@@ -64,25 +73,40 @@ export function createJointAccountRoutes(auth: Auth): Router {
       }
       
       // Debug logging
-      console.log('🔍 Looking for admin users with ids:', adminUserIds);
-      console.log('🔍 Found admin users:', adminUsers.map(u => ({ id: u.id || u._id, name: u.name })));
+      console.log('🔍 Looking for users with ids:', allUserIds.length);
+      console.log('🔍 Found users:', allUsers.length);
 
       // Combine with membership info and admin details
       const result = accounts.map(account => {
-        const membership = memberships.find(m => m.jointAccountId === account.id);
-        // Try both id formats
-        const adminUser = adminUsers.find(u => 
+        const userMembership = userMemberships.find(m => m.jointAccountId === account.id);
+        
+        // Get admin user
+        const adminUser = allUsers.find(u => 
           u.id === account.adminUserId || 
           u._id?.toString() === account.adminUserId
         );
-        console.log(`🔍 Account ${account.name}: adminUserId=${account.adminUserId}, found admin=${adminUser?.name || 'NOT FOUND'}`);
+        
+        // Get all members for this account with user details
+        const accountMembers = allMemberships
+          .filter(m => m.jointAccountId === account.id)
+          .map(m => {
+            const user = allUsers.find(u => u.id === m.userId || u._id?.toString() === m.userId);
+            return {
+              ...m,
+              userName: user?.name || 'Unknown',
+              userEmail: user?.email || '',
+              userImage: user?.image || null,
+            };
+          });
+        
         return {
           ...account,
-          role: membership?.role,
-          joinedAt: membership?.joinedAt,
+          role: userMembership?.role,
+          joinedAt: userMembership?.joinedAt,
           adminName: adminUser?.name || 'Unknown',
           adminEmail: adminUser?.email || '',
           adminImage: adminUser?.image || null,
+          members: accountMembers,
         };
       });
 
