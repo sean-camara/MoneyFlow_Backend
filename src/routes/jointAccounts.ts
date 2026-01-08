@@ -547,6 +547,13 @@ export function createJointAccountRoutes(auth: Auth): Router {
           tag: `member-left-${memberToRemove.id}`,
           data: { type: 'member-left', jointAccountId }
         });
+        
+        // Emit to joint account room so other members see the update
+        emitToJointAccount(jointAccountId, SocketEvents.MEMBER_LEFT, {
+          jointAccountId,
+          userId: memberToRemove.userId,
+          memberName: user?.name || 'A member'
+        });
       }
       
       // Notify the removed member if admin removed them
@@ -556,6 +563,13 @@ export function createJointAccountRoutes(auth: Auth): Router {
           jointAccountId,
           accountName: account.name,
           removedBy: userId
+        });
+        
+        // Emit to joint account room so admin's UI updates
+        emitToJointAccount(jointAccountId, SocketEvents.MEMBER_LEFT, {
+          jointAccountId,
+          userId: memberToRemove.userId,
+          memberName: memberToRemove.userName || 'A member'
         });
         
         // Send push notification to the removed user
