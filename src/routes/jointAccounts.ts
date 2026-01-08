@@ -38,19 +38,43 @@ export function createJointAccountRoutes(auth: Auth): Router {
       // Get admin user details for each account
       const adminUserIds = accounts.map(a => a.adminUserId);
       
-      // Try to find users by 'id' field (Better Auth stores user id in 'id' field)
+      // Try to find users by 'id' field first
       let adminUsers = await db.collection('user')
         .find({ id: { $in: adminUserIds } })
         .toArray();
       
+      // If not found, try with MongoDB _id field (for older accounts or different ID formats)
+      if (adminUsers.length === 0 && adminUserIds.length > 0) {
+        try {
+          const { ObjectId } = await import('mongodb');
+          const objectIds = adminUserIds
+            .filter(id => ObjectId.isValid(id))
+            .map(id => new ObjectId(id));
+          
+          if (objectIds.length > 0) {
+            adminUsers = await db.collection('user')
+              .find({ _id: { $in: objectIds } })
+              .toArray();
+            // Normalize the id field for consistency
+            adminUsers = adminUsers.map(u => ({ ...u, id: u._id.toString() }));
+          }
+        } catch (e) {
+          console.error('🔍 ObjectId lookup failed:', e);
+        }
+      }
+      
       // Debug logging
       console.log('🔍 Looking for admin users with ids:', adminUserIds);
-      console.log('🔍 Found admin users:', adminUsers.map(u => ({ id: u.id, name: u.name })));
+      console.log('🔍 Found admin users:', adminUsers.map(u => ({ id: u.id || u._id, name: u.name })));
 
       // Combine with membership info and admin details
       const result = accounts.map(account => {
         const membership = memberships.find(m => m.jointAccountId === account.id);
-        const adminUser = adminUsers.find(u => u.id === account.adminUserId);
+        // Try both id formats
+        const adminUser = adminUsers.find(u => 
+          u.id === account.adminUserId || 
+          u._id?.toString() === account.adminUserId
+        );
         console.log(`🔍 Account ${account.name}: adminUserId=${account.adminUserId}, found admin=${adminUser?.name || 'NOT FOUND'}`);
         return {
           ...account,
