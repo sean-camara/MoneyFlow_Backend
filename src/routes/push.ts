@@ -27,36 +27,49 @@ export function createPushRoutes(auth: Auth): Router {
     res.json({ success: true, data: { publicKey } });
   });
 
-  // Subscribe to push notifications
+  // Subscribe to push notifications (supports both FCM token and VAPID subscription)
   router.post('/subscribe', authMiddleware, async (req, res) => {
     try {
       const userId = req.user!.id;
       const userEmail = req.user!.email;
-      const { subscription } = req.body;
+      const { subscription, token, platform } = req.body;
 
       console.log('=== SUBSCRIBE REQUEST ===');
       console.log('User ID:', userId);
       console.log('User Email:', userEmail);
-      console.log('Subscription:', JSON.stringify(subscription));
 
-      if (!subscription || !subscription.endpoint || !subscription.keys) {
-        console.log('ERROR: Invalid subscription data');
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Invalid subscription data' 
+      // Handle FCM token (new Firebase method)
+      if (token) {
+        console.log('FCM Token received:', token.substring(0, 20) + '...');
+        await savePushSubscription(userId, {
+          fcmToken: token,
+          platform: platform || 'web',
+          type: 'fcm'
         });
+        console.log('=== FCM TOKEN SAVED ===');
+        return res.json({ success: true, message: 'FCM token saved' });
       }
 
-      await savePushSubscription(userId, {
-        endpoint: subscription.endpoint,
-        keys: {
-          p256dh: subscription.keys.p256dh,
-          auth: subscription.keys.auth
-        }
-      });
+      // Handle legacy VAPID subscription
+      if (subscription && subscription.endpoint && subscription.keys) {
+        console.log('Legacy VAPID subscription:', JSON.stringify(subscription));
+        await savePushSubscription(userId, {
+          endpoint: subscription.endpoint,
+          keys: {
+            p256dh: subscription.keys.p256dh,
+            auth: subscription.keys.auth
+          },
+          type: 'vapid'
+        });
+        console.log('=== VAPID SUBSCRIPTION SAVED ===');
+        return res.json({ success: true, message: 'Push subscription saved' });
+      }
 
-      console.log('=== SUBSCRIPTION SAVED ===');
-      res.json({ success: true, message: 'Push subscription saved' });
+      console.log('ERROR: Invalid subscription data');
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid subscription data - need token or subscription' 
+      });
     } catch (error) {
       console.error('Error saving push subscription:', error);
       res.status(500).json({ success: false, error: 'Failed to save subscription' });

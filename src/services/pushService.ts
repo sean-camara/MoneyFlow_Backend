@@ -23,11 +23,17 @@ export function getVapidPublicKey(): string {
   return process.env.VAPID_PUBLIC_KEY || '';
 }
 
-// Send push notification to a specific subscription
+// Send push notification to a specific subscription (VAPID)
 export async function sendPushNotification(
   subscription: PushSubscriptionData,
   payload: NotificationPayload
 ): Promise<boolean> {
+  // Check if this is a VAPID subscription
+  if (!subscription.endpoint || !subscription.keys) {
+    console.warn('Not a VAPID subscription, skipping web-push');
+    return false;
+  }
+
   if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
     console.warn('Push notifications not configured');
     return false;

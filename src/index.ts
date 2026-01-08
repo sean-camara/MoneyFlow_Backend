@@ -6,6 +6,7 @@ import { toNodeHandler } from 'better-auth/node';
 import { connectToDatabase, closeDatabase } from './config/database.js';
 import { createAuth } from './config/auth.js';
 import { initializePushService } from './services/pushService.js';
+import { initializeFirebase } from './services/firebaseService.js';
 import { initializeEmailService } from './services/emailService.js';
 import { initializeSocketService } from './services/socketService.js';
 import {
@@ -32,6 +33,7 @@ async function startServer() {
     
     // Initialize services
     initializePushService();
+    initializeFirebase();
     initializeEmailService();
     initializeSocketService(httpServer);
 

@@ -58,13 +58,19 @@ export interface User {
   pushSubscription?: PushSubscriptionData;
 }
 
-// Push subscription data
+// Push subscription data (supports both VAPID and FCM)
 export interface PushSubscriptionData {
-  endpoint: string;
-  keys: {
+  // VAPID subscription fields
+  endpoint?: string;
+  keys?: {
     p256dh: string;
     auth: string;
   };
+  // FCM token fields
+  fcmToken?: string;
+  platform?: string;
+  // Type indicator
+  type?: 'vapid' | 'fcm';
 }
 
 // Joint Account document
