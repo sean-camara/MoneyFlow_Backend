@@ -537,7 +537,7 @@ export function createJointAccountRoutes(auth: Auth): Router {
       await db.collection<JointAccountMember>('jointAccountMembers').deleteOne({ id: memberToRemove.id });
       console.log('Member removed successfully');
 
-      // Notify admin if a member left
+      // Notify admin if a member left voluntarily
       if (isSelf && !isAdmin) {
         const user = await db.collection('user').findOne({ id: userId });
         await sendNotificationToUser(account.adminUserId, {
@@ -546,6 +546,25 @@ export function createJointAccountRoutes(auth: Auth): Router {
           icon: 'https://money-flow-six.vercel.app/icon-192.png',
           tag: `member-left-${memberToRemove.id}`,
           data: { type: 'member-left', jointAccountId }
+        });
+      }
+      
+      // Notify the removed member if admin removed them
+      if (isAdmin && !isSelf) {
+        // Send socket event to the removed user
+        emitToUser(memberToRemove.userId, SocketEvents.MEMBER_REMOVED, {
+          jointAccountId,
+          accountName: account.name,
+          removedBy: userId
+        });
+        
+        // Send push notification to the removed user
+        await sendNotificationToUser(memberToRemove.userId, {
+          title: '🚫 Removed from joint account',
+          body: `You have been removed from "${account.name}"`,
+          icon: 'https://money-flow-six.vercel.app/icon-192.png',
+          tag: `member-removed-${memberToRemove.id}`,
+          data: { type: 'member-removed', jointAccountId }
         });
       }
 
