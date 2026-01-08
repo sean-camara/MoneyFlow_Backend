@@ -61,9 +61,11 @@ async function startServer() {
         console.log('🚫 CORS blocked origin:', origin);
         callback(new Error('Not allowed by CORS'));
       },
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
       credentials: true,
-      allowedHeaders: ['Content-Type', 'Authorization']
+      allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+      exposedHeaders: ['Content-Type', 'Authorization'],
+      maxAge: 86400, // Cache preflight for 24 hours
     }));
 
     // Better Auth handler - MUST be before express.json()
