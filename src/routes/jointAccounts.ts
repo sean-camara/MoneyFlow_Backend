@@ -37,14 +37,21 @@ export function createJointAccountRoutes(auth: Auth): Router {
 
       // Get admin user details for each account
       const adminUserIds = accounts.map(a => a.adminUserId);
-      const adminUsers = await db.collection('user')
+      
+      // Try to find users by 'id' field (Better Auth stores user id in 'id' field)
+      let adminUsers = await db.collection('user')
         .find({ id: { $in: adminUserIds } })
         .toArray();
+      
+      // Debug logging
+      console.log('🔍 Looking for admin users with ids:', adminUserIds);
+      console.log('🔍 Found admin users:', adminUsers.map(u => ({ id: u.id, name: u.name })));
 
       // Combine with membership info and admin details
       const result = accounts.map(account => {
         const membership = memberships.find(m => m.jointAccountId === account.id);
         const adminUser = adminUsers.find(u => u.id === account.adminUserId);
+        console.log(`🔍 Account ${account.name}: adminUserId=${account.adminUserId}, found admin=${adminUser?.name || 'NOT FOUND'}`);
         return {
           ...account,
           role: membership?.role,
