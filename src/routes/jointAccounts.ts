@@ -501,14 +501,15 @@ export function createJointAccountRoutes(auth: Auth): Router {
     }
   });
 
-  // Get invites for a joint account (admin only)
+  // Get invites for a joint account (admin only) - only pending invites
   router.get('/:jointAccountId/invites', authMiddleware, requireJointAccountAdmin, async (req, res) => {
     try {
       const db = getDb();
       const { jointAccountId } = req.params;
 
+      // Only return pending invites, not accepted/declined ones
       const invites = await db.collection<JointAccountInvite>('jointAccountInvites')
-        .find({ jointAccountId })
+        .find({ jointAccountId, status: InviteStatus.PENDING })
         .sort({ createdAt: -1 })
         .toArray();
 
