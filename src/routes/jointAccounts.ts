@@ -558,6 +558,9 @@ export function createJointAccountRoutes(auth: Auth): Router {
       
       // Notify the removed member if admin removed them
       if (isAdmin && !isSelf) {
+        // Look up the removed user's name
+        const removedUser = await db.collection('user').findOne({ id: memberToRemove.userId });
+        
         // Send socket event to the removed user
         emitToUser(memberToRemove.userId, SocketEvents.MEMBER_REMOVED, {
           jointAccountId,
@@ -569,7 +572,7 @@ export function createJointAccountRoutes(auth: Auth): Router {
         emitToJointAccount(jointAccountId, SocketEvents.MEMBER_LEFT, {
           jointAccountId,
           userId: memberToRemove.userId,
-          memberName: memberToRemove.userName || 'A member'
+          memberName: removedUser?.name || 'A member'
         });
         
         // Send push notification to the removed user
