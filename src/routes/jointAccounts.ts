@@ -478,19 +478,35 @@ export function createJointAccountRoutes(auth: Auth): Router {
   });
 
   // Remove a member (admin only) or leave account (self)
+  // memberId can be either the membership ID or the user ID
   router.delete('/:jointAccountId/members/:memberId', authMiddleware, async (req, res) => {
     try {
       const db = getDb();
       const { jointAccountId, memberId } = req.params;
       const userId = req.user!.id;
 
-      // Find the member to remove
-      const memberToRemove = await db.collection<JointAccountMember>('jointAccountMembers')
+      console.log('=== REMOVE MEMBER REQUEST ===');
+      console.log('jointAccountId:', jointAccountId);
+      console.log('memberId (could be membership ID or user ID):', memberId);
+      console.log('requesting userId:', userId);
+
+      // Find the member to remove - try by membership ID first, then by userId
+      let memberToRemove = await db.collection<JointAccountMember>('jointAccountMembers')
         .findOne({ id: memberId, jointAccountId });
+      
+      // If not found by membership ID, try by userId
+      if (!memberToRemove) {
+        console.log('Not found by membership ID, trying by userId...');
+        memberToRemove = await db.collection<JointAccountMember>('jointAccountMembers')
+          .findOne({ userId: memberId, jointAccountId });
+      }
 
       if (!memberToRemove) {
+        console.log('Member not found');
         return res.status(404).json({ success: false, error: 'Member not found' });
       }
+
+      console.log('Found member:', memberToRemove.id, 'userId:', memberToRemove.userId, 'role:', memberToRemove.role);
 
       // Get the account to check admin status
       const account = await db.collection<JointAccount>('jointAccounts')
@@ -500,8 +516,12 @@ export function createJointAccountRoutes(auth: Auth): Router {
         return res.status(404).json({ success: false, error: 'Account not found' });
       }
 
+      console.log('Account admin:', account.adminUserId);
+
       const isAdmin = account.adminUserId === userId;
       const isSelf = memberToRemove.userId === userId;
+
+      console.log('isAdmin:', isAdmin, 'isSelf:', isSelf);
 
       // Check permissions:
       // 1. Admin can remove anyone except themselves
@@ -514,7 +534,8 @@ export function createJointAccountRoutes(auth: Auth): Router {
         return res.status(400).json({ success: false, error: 'Admin cannot leave their own account. Transfer ownership or delete the account instead.' });
       }
 
-      await db.collection<JointAccountMember>('jointAccountMembers').deleteOne({ id: memberId });
+      await db.collection<JointAccountMember>('jointAccountMembers').deleteOne({ id: memberToRemove.id });
+      console.log('Member removed successfully');
 
       // Notify admin if a member left
       if (isSelf && !isAdmin) {
@@ -523,7 +544,7 @@ export function createJointAccountRoutes(auth: Auth): Router {
           title: '👋 Member Left',
           body: `${user?.name || 'A member'} has left "${account.name}"`,
           icon: '/icon-192.png',
-          tag: `member-left-${memberId}`,
+          tag: `member-left-${memberToRemove.id}`,
           data: { type: 'member-left', jointAccountId }
         });
       }

@@ -85,13 +85,26 @@ export async function sendNotificationToUser(
   payload: NotificationPayload
 ): Promise<boolean> {
   const db = getDb();
+  const { ObjectId } = await import('mongodb');
   
-  // Find user with push subscription
-  const user = await db.collection('user').findOne({
-    id: userId,
+  // Build query to find user by id OR _id
+  const query: any = {
     notificationsEnabled: true,
     pushSubscription: { $exists: true, $ne: null }
-  });
+  };
+  
+  // Try to match by id field or _id (ObjectId)
+  if (ObjectId.isValid(userId)) {
+    query.$or = [
+      { id: userId },
+      { _id: new ObjectId(userId) }
+    ];
+  } else {
+    query.id = userId;
+  }
+  
+  // Find user with push subscription
+  const user = await db.collection('user').findOne(query);
 
   if (!user?.pushSubscription) {
     console.log(`No push subscription for user ${userId}`);
@@ -117,6 +130,7 @@ export async function notifyJointAccountMembers(
   payload: NotificationPayload
 ): Promise<void> {
   const db = getDb();
+  const { ObjectId } = await import('mongodb');
   
   // Get all members of the joint account
   const members = await db.collection<JointAccountMember>('jointAccountMembers')
@@ -130,12 +144,20 @@ export async function notifyJointAccountMembers(
   
   if (userIds.length === 0) return;
   
-  console.log(`📢 Notifying ${userIds.length} joint account members`);
+  console.log(`📢 Notifying ${userIds.length} joint account members:`, userIds);
   
-  // Get users with push subscriptions
+  // Convert to ObjectIds for users that might be stored with _id only
+  const objectIds = userIds
+    .filter(id => ObjectId.isValid(id))
+    .map(id => new ObjectId(id));
+  
+  // Get users with push subscriptions - search by BOTH id field AND _id field
   const users = await db.collection('user')
     .find({
-      id: { $in: userIds },
+      $or: [
+        { id: { $in: userIds } },
+        { _id: { $in: objectIds } }
+      ],
       notificationsEnabled: true,
       pushSubscription: { $exists: true, $ne: null }
     })
@@ -151,11 +173,14 @@ export async function notifyJointAccountMembers(
           ? JSON.parse(user.pushSubscription) 
           : user.pushSubscription;
         const success = await sendPushNotification(subscription, payload);
+        const userId = user.id || user._id?.toString();
         if (success) {
-          console.log(`✅ Notification sent to user ${user.id}`);
+          console.log(`✅ Notification sent to user ${userId}`);
+        } else {
+          console.log(`❌ Failed to send notification to user ${userId}`);
         }
       } catch (e) {
-        console.error('Error sending notification to user:', user.id, e);
+        console.error('Error sending notification to user:', user.id || user._id, e);
       }
     }
   });
