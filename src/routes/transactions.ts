@@ -106,14 +106,22 @@ export function createTransactionRoutes(auth: Auth): Router {
       emitToJointAccount(jointAccountId, SocketEvents.TRANSACTION_ADDED, transaction);
 
       // Send push notifications to other members
-      const notificationTitle = type === TransactionType.INCOME ? '💰 Income Added' : '💸 Expense Added';
-      const notificationBody = `${userName} added ${type.toLowerCase()}: ${currency || 'USD'} ${Number(amount).toLocaleString()} (${category})`;
+      const currencySymbol = currency || 'USD';
+      const formattedAmount = Number(amount).toLocaleString();
+      const notificationTitle = type === TransactionType.INCOME 
+        ? `💰 ${userName} added income` 
+        : `💸 ${userName} added an expense`;
+      const notificationBody = type === TransactionType.INCOME
+        ? `+${currencySymbol} ${formattedAmount} from ${category}`
+        : `${currencySymbol} ${formattedAmount} on ${category}`;
       
       // Fire and forget - don't wait for notifications
+      // Use absolute URL for icon so it works on mobile
+      const iconUrl = process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/icon-192.png` : 'https://money-flow-six.vercel.app/icon-192.png';
       notifyJointAccountMembers(jointAccountId, userId, {
         title: notificationTitle,
         body: notificationBody,
-        icon: '/icon-192.png',
+        icon: iconUrl,
         tag: `transaction-${transaction.id}`,
         data: { type: 'transaction', transactionId: transaction.id, jointAccountId, url: '/transactions' }
       }).catch(err => console.error('Notification error:', err));

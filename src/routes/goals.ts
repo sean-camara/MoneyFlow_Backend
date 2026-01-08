@@ -72,10 +72,11 @@ export function createGoalRoutes(auth: Auth): Router {
       await db.collection<Goal>('goals').insertOne(goal);
 
       // Notify other members about new goal
+      const iconUrl = process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/icon-192.png` : 'https://money-flow-six.vercel.app/icon-192.png';
       notifyJointAccountMembers(jointAccountId, userId, {
-        title: '🎯 New Goal Created',
-        body: `${user?.name || 'Someone'} created a new goal: "${name}" - Target: ${currency || 'USD'} ${Number(targetAmount).toLocaleString()}`,
-        icon: '/icon-192.png',
+        title: `🎯 ${user?.name || 'Someone'} created a goal`,
+        body: `"${name}" with target of ${currency || 'USD'} ${Number(targetAmount).toLocaleString()}`,
+        icon: iconUrl,
         tag: `goal-created-${goal.id}`,
         data: { type: 'goal', goalId: goal.id, jointAccountId, url: '/goals' }
       }).catch(err => console.error('Goal notification error:', err));
@@ -138,9 +139,9 @@ export function createGoalRoutes(auth: Auth): Router {
         if (newProgress >= 100 && oldProgress < 100) {
           // Goal achieved!
           notifyJointAccountMembers(goal.jointAccountId, userId, {
-            title: '🎉 Goal Achieved!',
-            body: `Congratulations! "${goal.name}" has been completed! Target: ${goal.currency} ${goal.targetAmount.toLocaleString()}`,
-            icon: '/icon-192.png',
+            title: '🎉 Goal achieved!',
+            body: `"${goal.name}" has reached ${goal.currency} ${goal.targetAmount.toLocaleString()}!`,
+            icon: 'https://money-flow-six.vercel.app/icon-192.png',
             tag: `goal-achieved-${goal.id}`,
             data: { type: 'goal-achieved', goalId: goal.id, jointAccountId: goal.jointAccountId, url: '/goals' }
           }).catch(err => console.error('Goal notification error:', err));
@@ -148,9 +149,9 @@ export function createGoalRoutes(auth: Auth): Router {
           // Crossed a 25% milestone
           const milestone = Math.floor(newProgress / 25) * 25;
           notifyJointAccountMembers(goal.jointAccountId, userId, {
-            title: '📈 Goal Progress Update',
-            body: `${user?.name || 'Someone'} updated "${goal.name}" - Now at ${milestone}% (${goal.currency} ${updated.currentAmount.toLocaleString()} / ${goal.targetAmount.toLocaleString()})`,
-            icon: '/icon-192.png',
+            title: `📈 ${user?.name || 'Someone'} updated a goal`,
+            body: `"${goal.name}" is now at ${milestone}% (${goal.currency} ${updated.currentAmount.toLocaleString()})`,
+            icon: 'https://money-flow-six.vercel.app/icon-192.png',
             tag: `goal-progress-${goal.id}`,
             data: { type: 'goal-progress', goalId: goal.id, jointAccountId: goal.jointAccountId, url: '/goals' }
           }).catch(err => console.error('Goal notification error:', err));

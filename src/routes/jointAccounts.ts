@@ -306,9 +306,9 @@ export function createJointAccountRoutes(auth: Auth): Router {
 
         // Send push notification for invite
         await sendNotificationToUser(invitedUser.id, {
-          title: '🤝 Joint Account Invitation',
-          body: `${inviter?.name || 'Someone'} invited you to join "${account?.name || 'a joint account'}"`,
-          icon: '/icon-192.png',
+          title: `🤝 ${inviter?.name || 'Someone'} invited you`,
+          body: `Join the joint account "${account?.name || 'Unknown'}" to share finances together`,
+          icon: 'https://money-flow-six.vercel.app/icon-192.png',
           tag: `invite-${invite.id}`,
           data: { type: 'joint-account-invite', inviteId: invite.id, url: '/settings?tab=joint-accounts' }
         });
@@ -440,9 +440,9 @@ export function createJointAccountRoutes(auth: Auth): Router {
 
           // Send push notification to admin that member joined
           await sendNotificationToUser(account.adminUserId, {
-            title: '✅ New Member Joined',
-            body: `${user?.name || 'Someone'} accepted your invitation to "${account.name}"`,
-            icon: '/icon-192.png',
+            title: `✅ ${user?.name || 'Someone'} joined your account`,
+            body: `They are now a member of "${account.name}"`,
+            icon: 'https://money-flow-six.vercel.app/icon-192.png',
             tag: `member-joined-${membership.id}`,
             data: { type: 'member-joined', jointAccountId: invite.jointAccountId, url: '/settings?tab=joint-accounts' }
           });
@@ -458,9 +458,9 @@ export function createJointAccountRoutes(auth: Auth): Router {
 
           // Send push notification that invite was declined
           await sendNotificationToUser(account.adminUserId, {
-            title: '❌ Invitation Declined',
+            title: `❌ Invitation declined`,
             body: `${invite.invitedEmail} declined to join "${account.name}"`,
-            icon: '/icon-192.png',
+            icon: 'https://money-flow-six.vercel.app/icon-192.png',
             tag: `invite-declined-${inviteId}`,
             data: { type: 'invite-declined', jointAccountId: invite.jointAccountId }
           });
@@ -541,9 +541,9 @@ export function createJointAccountRoutes(auth: Auth): Router {
       if (isSelf && !isAdmin) {
         const user = await db.collection('user').findOne({ id: userId });
         await sendNotificationToUser(account.adminUserId, {
-          title: '👋 Member Left',
-          body: `${user?.name || 'A member'} has left "${account.name}"`,
-          icon: '/icon-192.png',
+          title: `👋 ${user?.name || 'A member'} left`,
+          body: `They are no longer a member of "${account.name}"`,
+          icon: 'https://money-flow-six.vercel.app/icon-192.png',
           tag: `member-left-${memberToRemove.id}`,
           data: { type: 'member-left', jointAccountId }
         });
