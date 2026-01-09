@@ -16,7 +16,8 @@ import {
   createSubscriptionRoutes,
   createInsightsRoutes,
   createPushRoutes,
-  createUserRoutes
+  createUserRoutes,
+  createAIRoutes
 } from './routes/index.js';
 
 const app = express();
@@ -94,6 +95,7 @@ async function startServer() {
     app.use('/api/insights', createInsightsRoutes(auth));
     app.use('/api/push', createPushRoutes(auth));
     app.use('/api/user', createUserRoutes(auth));
+    app.use('/api/ai', createAIRoutes(auth));
 
     // 404 handler
     app.use('/api/*', (req, res) => {

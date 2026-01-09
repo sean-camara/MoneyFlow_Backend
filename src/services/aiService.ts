@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getDb } from '../config/database.js';
 import { Transaction, Goal, Subscription, TransactionType, Category } from '../types/index.js';
+import { callOpenRouter, aiFinancialChat } from './openRouterService.js';
 
 // Helper to get amount category type for 50/30/20 analysis
 function getCategoryType(category: string): 'NEED' | 'WANT' | 'SAVINGS' | 'OTHER' {
@@ -112,11 +112,11 @@ export async function generateAIInsights(
   primaryCurrency: string,
   userQuestion?: string
 ): Promise<AIInsights | string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   
   if (!apiKey) {
     return {
-      generalTip: "I don't have access to AI capabilities right now. Please configure the API key.",
+      generalTip: "AI features are not configured. Please add your OpenRouter API key.",
       budgetHealth: "Unable to analyze without AI configuration.",
       runwayAnalysis: "Unable to calculate without AI configuration."
     };
@@ -163,10 +163,7 @@ export async function generateAIInsights(
   const activeGoal = goals.find(g => g.deadline && g.currentAmount < g.targetAmount);
   
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    
-    // If this is a chat question, handle it differently
+    // If this is a chat question, use the chat function
     if (userQuestion) {
       const transactionHistory = recentTransactions
         .slice(0, 30)
@@ -180,38 +177,27 @@ export async function generateAIInsights(
         .map(u => `- ${u.userName}: ${u.count} transactions, total ${u.totalAdded} ${primaryCurrency}`)
         .join('\n');
       
-      const context = `
-        You are a warm, empathetic financial assistant for FlowMoney, a joint account management app.
-        You must ONLY use the data provided below to answer questions. If the user asks about something
-        not in this data, say "I don't have access to that information."
-        
-        TONE: Friendly, Reassuring, Specific.
-        Keep answers under 100 words.
-        
-        Current Date: ${new Date().toLocaleDateString()}
-        
-        ACCOUNT SUMMARY:
-        - Balance: ${analysis.balance} ${primaryCurrency}
-        - Total Income: ${analysis.totalIncome} ${primaryCurrency}
-        - Total Expense: ${analysis.totalExpense} ${primaryCurrency}
-        - Daily Burn Rate: ${dailyBurn.toFixed(2)} ${primaryCurrency}
-        - Monthly Subscription Costs: ${monthlySubscriptionCost} ${primaryCurrency}
-        - Runway: ${runwayDays > 365 ? '1+ Year' : runwayDays + ' Days'}
-        
-        USER CONTRIBUTIONS:
-        ${userContributionsText || 'No contribution data yet.'}
-        
-        RECENT TRANSACTIONS:
-        ${transactionHistory || 'No transactions yet.'}
-        
-        ${activeGoal ? `ACTIVE GOAL: ${activeGoal.name} - Target: ${activeGoal.targetAmount}, Current: ${activeGoal.currentAmount}, Deadline: ${activeGoal.deadline}` : 'No active goals.'}
-      `;
-      
-      const result = await model.generateContent(`${context}\n\nUser question: ${userQuestion}`);
-      return result.response.text();
+      const goalText = activeGoal 
+        ? `${activeGoal.name} - Target: ${activeGoal.targetAmount}, Current: ${activeGoal.currentAmount}, Deadline: ${activeGoal.deadline}`
+        : 'No active goals.';
+
+      return await aiFinancialChat(userQuestion, {
+        balance: analysis.balance,
+        totalIncome: analysis.totalIncome,
+        totalExpense: analysis.totalExpense,
+        topCategories: Object.entries(analysis.categoryTotals)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([cat, amt]) => `- ${cat}: ${amt} ${primaryCurrency}`)
+          .join('\n'),
+        recentTransactions: transactionHistory,
+        goals: goalText,
+        subscriptions: subscriptions.map(s => `- ${s.name}: ${s.amount} ${s.currency}/${s.cycle}`).join('\n'),
+        userContributions: userContributionsText
+      });
     }
     
-    // Generate structured insights
+    // Generate structured insights using OpenRouter
     let goalSection = '';
     if (activeGoal) {
       const remaining = activeGoal.targetAmount - activeGoal.currentAmount;
@@ -225,41 +211,50 @@ export async function generateAIInsights(
       const dailySurplus = (recentIncome - totalRecentExpense) / 30;
       
       goalSection = `
-        ACTIVE GOAL:
-        - Name: "${activeGoal.name}"
-        - Days Left: ${daysLeft}
-        - Amount Needed: ${remaining} ${primaryCurrency}
-        - Daily Savings Required: ${dailyNeeded.toFixed(2)} ${primaryCurrency}
-        - Current Daily Surplus: ${dailySurplus.toFixed(2)} ${primaryCurrency}
-      `;
+ACTIVE GOAL:
+- Name: "${activeGoal.name}"
+- Days Left: ${daysLeft}
+- Amount Needed: ${remaining} ${primaryCurrency}
+- Daily Savings Required: ${dailyNeeded.toFixed(2)} ${primaryCurrency}
+- Current Daily Surplus: ${dailySurplus.toFixed(2)} ${primaryCurrency}`;
     }
     
-    const prompt = `
-      You are a warm, friendly financial advisor. Analyze this data and return JSON.
-      
-      DATA:
-      - Total Spent: ${analysis.totalExpense} ${primaryCurrency}
-      - Total Income: ${analysis.totalIncome} ${primaryCurrency}
-      - Balance: ${analysis.balance} ${primaryCurrency}
-      - Top Expense Category: ${analysis.topCategory.name} (${analysis.topCategory.amount} ${primaryCurrency})
-      - 50/30/20 Split: Needs ${Math.round((analysis.breakdown.NEED / (analysis.totalExpense || 1)) * 100)}%, Wants ${Math.round((analysis.breakdown.WANT / (analysis.totalExpense || 1)) * 100)}%, Savings ${Math.round((analysis.breakdown.SAVINGS / (analysis.totalExpense || 1)) * 100)}%
-      - Runway: ${runwayDays > 365 ? '1+ Year' : runwayDays + ' Days'}
-      - Monthly Subscriptions: ${monthlySubscriptionCost} ${primaryCurrency}
-      ${goalSection}
-      
-      Return ONLY valid JSON with:
-      1. generalTip: Warm observation starting with "I see...", "I noticed...", or "It looks like..." (max 25 words)
-      2. budgetHealth: Comment on spending mix (max 20 words)
-      3. runwayAnalysis: Comment on survival days (max 20 words)
-      4. goalAnalysis: (if goal exists) Advice on reaching goal (max 25 words)
-      5. goalStatus: (if goal exists) "ON_TRACK", "AT_RISK", or "UNREALISTIC"
-    `;
+    const systemPrompt = `You are a warm, friendly financial advisor. Analyze the data and return insights.
+
+Return ONLY valid JSON:
+{
+  "generalTip": "Warm observation starting with 'I see...', 'I noticed...', or 'It looks like...' (max 25 words)",
+  "budgetHealth": "Comment on spending mix (max 20 words)",
+  "runwayAnalysis": "Comment on survival days (max 20 words)",
+  "goalAnalysis": "Advice on reaching goal if exists (max 25 words)",
+  "goalStatus": "ON_TRACK" or "AT_RISK" or "UNREALISTIC" (only if goal exists)
+}`;
+
+    const userPrompt = `Financial Data:
+- Total Spent: ${analysis.totalExpense} ${primaryCurrency}
+- Total Income: ${analysis.totalIncome} ${primaryCurrency}
+- Balance: ${analysis.balance} ${primaryCurrency}
+- Top Expense: ${analysis.topCategory.name} (${analysis.topCategory.amount} ${primaryCurrency})
+- 50/30/20: Needs ${Math.round((analysis.breakdown.NEED / (analysis.totalExpense || 1)) * 100)}%, Wants ${Math.round((analysis.breakdown.WANT / (analysis.totalExpense || 1)) * 100)}%, Savings ${Math.round((analysis.breakdown.SAVINGS / (analysis.totalExpense || 1)) * 100)}%
+- Runway: ${runwayDays > 365 ? '1+ Year' : runwayDays + ' Days'}
+- Monthly Subscriptions: ${monthlySubscriptionCost} ${primaryCurrency}
+${goalSection}`;
+
+    const result = await callOpenRouter([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ], { jsonMode: true, temperature: 0.5 });
     
-    const result = await model.generateContent(prompt);
-    let jsonStr = result.response.text();
-    jsonStr = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]) as AIInsights;
+    }
     
-    return JSON.parse(jsonStr) as AIInsights;
+    return {
+      generalTip: "I see you're tracking your finances - that's a great first step!",
+      budgetHealth: "Keep monitoring your spending patterns.",
+      runwayAnalysis: "Your financial runway looks stable."
+    };
   } catch (error: any) {
     console.error('AI generation error:', error.message);
     return {
@@ -276,10 +271,10 @@ export async function aiChat(
   message: string,
   history?: Array<{ role: string; content: string }>
 ): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   
   if (!apiKey) {
-    return "I don't have access to AI capabilities right now. The API key hasn't been configured. Please contact support.";
+    return "AI features are not configured. Please add your OpenRouter API key to enable this feature.";
   }
   
   const db = getDb();
@@ -294,23 +289,15 @@ export async function aiChat(
   if (jointAccountIds.length === 0) {
     // User has no joint accounts - provide limited help
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      
-      const prompt = `
-        You are a friendly financial assistant for FlowMoney.
-        The user doesn't have any joint accounts set up yet, so you don't have access to their financial data.
-        
-        Answer their question as helpfully as possible, but be honest when you don't have data.
-        If they ask about their spending/transactions, explain that they need to set up a joint account first.
-        
-        Keep responses under 100 words. Be warm and helpful.
-        
-        User: ${message}
-      `;
-      
-      const result = await model.generateContent(prompt);
-      return result.response.text();
+      return await aiFinancialChat(message, {
+        balance: 0,
+        totalIncome: 0,
+        totalExpense: 0,
+        topCategories: 'No data - user has no joint accounts yet.',
+        recentTransactions: 'No transactions - please set up a joint account first.',
+        goals: 'No goals set.',
+        subscriptions: 'No subscriptions.'
+      }, history);
     } catch (error) {
       console.error('AI chat error:', error);
       return "I'm having trouble connecting right now. Please try again in a moment.";
@@ -379,47 +366,15 @@ export async function aiChat(
     .join('\n');
   
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    
-    const context = `
-      You are a warm, empathetic financial assistant for FlowMoney.
-      You MUST only answer based on the data provided below. If asked about something not in this data,
-      say "I don't have access to that information in my current data."
-      
-      Be friendly, specific, and keep responses under 100 words.
-      
-      TODAY: ${new Date().toLocaleDateString()}
-      
-      USER'S FINANCIAL SUMMARY:
-      - Total Income (recent): ${totalIncome}
-      - Total Expenses (recent): ${totalExpense}
-      - Balance: ${totalIncome - totalExpense}
-      - Number of Accounts: ${jointAccountIds.length}
-      
-      TOP EXPENSE CATEGORIES:
-      ${categoryBreakdown || 'No expense data yet.'}
-      
-      RECENT TRANSACTIONS:
-      ${transactionSummary || 'No transactions yet.'}
-      
-      SAVINGS GOALS:
-      ${goalsSummary || 'No goals set.'}
-      
-      SUBSCRIPTIONS:
-      ${subsSummary || 'No subscriptions tracked.'}
-    `;
-    
-    let conversationHistory = '';
-    if (history && history.length > 0) {
-      conversationHistory = '\n\nCONVERSATION HISTORY:\n' + 
-        history.slice(-6).map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n');
-    }
-    
-    const prompt = `${context}${conversationHistory}\n\nUser: ${message}\n\nAssistant:`;
-    
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+    return await aiFinancialChat(message, {
+      balance: totalIncome - totalExpense,
+      totalIncome,
+      totalExpense,
+      topCategories: categoryBreakdown || 'No expense data yet.',
+      recentTransactions: transactionSummary || 'No transactions yet.',
+      goals: goalsSummary || 'No goals set.',
+      subscriptions: subsSummary || 'No subscriptions tracked.'
+    }, history);
   } catch (error: any) {
     console.error('AI chat error:', error.message);
     return "I'm having trouble connecting to my AI service right now. Please try again in a moment.";
