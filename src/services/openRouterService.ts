@@ -219,12 +219,27 @@ ${goalSection}`;
   return result;
 }
 
-// AI Chat for financial questions
+// AI Chat for financial questions - supports both simple and context-based calls
 export async function aiFinancialChat(
   message: string,
+  contextOrHistory?: {
+    balance?: number;
+    totalIncome?: number;
+    totalExpense?: number;
+    topCategories?: string;
+    recentTransactions?: string;
+    goals?: string;
+    subscriptions?: string;
+    userContributions?: string;
+  } | Array<{ role: string; content: string }>,
   history?: Array<{ role: string; content: string }>
 ): Promise<string> {
-  const systemPrompt = `You are a warm, empathetic financial assistant for FlowMoney.
+  // Determine if second param is context object or history array
+  const isContextObject = contextOrHistory && !Array.isArray(contextOrHistory);
+  const context = isContextObject ? contextOrHistory : undefined;
+  const chatHistory = isContextObject ? history : (contextOrHistory as Array<{ role: string; content: string }> | undefined);
+
+  let systemPrompt = `You are a warm, empathetic financial assistant for FlowMoney.
 You are NOT a strict calculator. You are a supportive coach.
 
 TONE: Friendly, Reassuring, Specific.
@@ -237,13 +252,37 @@ If the user asks about something you don't know, say "I'd need more information 
 
 TODAY: ${new Date().toLocaleDateString()}`;
 
+  // Add context if provided
+  if (context) {
+    systemPrompt += `
+
+USER'S FINANCIAL SUMMARY:
+- Balance: ${context.balance ?? 'Unknown'}
+- Total Income: ${context.totalIncome ?? 'Unknown'}
+- Total Expenses: ${context.totalExpense ?? 'Unknown'}
+
+TOP EXPENSE CATEGORIES:
+${context.topCategories || 'No data yet.'}
+
+RECENT TRANSACTIONS:
+${context.recentTransactions || 'No transactions yet.'}
+
+SAVINGS GOALS:
+${context.goals || 'No goals set.'}
+
+SUBSCRIPTIONS:
+${context.subscriptions || 'No subscriptions.'}
+
+${context.userContributions ? `USER CONTRIBUTIONS:\n${context.userContributions}` : ''}`;
+  }
+
   const messages: OpenRouterMessage[] = [
     { role: 'system', content: systemPrompt }
   ];
   
   // Add conversation history
-  if (history && history.length > 0) {
-    history.slice(-6).forEach(h => {
+  if (chatHistory && chatHistory.length > 0) {
+    chatHistory.slice(-6).forEach(h => {
       messages.push({
         role: h.role === 'user' ? 'user' : 'assistant',
         content: h.content
