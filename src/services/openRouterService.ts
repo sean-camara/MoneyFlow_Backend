@@ -35,6 +35,7 @@ export async function callOpenRouter(
   
   const model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
   
+  // Note: Free models don't support response_format, so we handle JSON in prompts
   const response = await fetch(OPENROUTER_API_URL, {
     method: 'POST',
     headers: {
@@ -47,8 +48,7 @@ export async function callOpenRouter(
       model,
       messages,
       max_tokens: options?.maxTokens || 1024,
-      temperature: options?.temperature || 0.7,
-      response_format: options?.jsonMode ? { type: 'json_object' } : undefined
+      temperature: options?.temperature || 0.7
     })
   });
   
