@@ -80,13 +80,14 @@ export function createUserRoutes(auth: Auth): Router {
     try {
       const db = getDb();
       const userId = req.user!.id;
-      const { primaryCurrency, notificationsEnabled, name } = req.body;
+      const { primaryCurrency, notificationsEnabled, name, image } = req.body;
 
       const updateData: Record<string, any> = { updatedAt: new Date() };
       
       if (primaryCurrency !== undefined) updateData.primaryCurrency = primaryCurrency;
       if (notificationsEnabled !== undefined) updateData.notificationsEnabled = notificationsEnabled;
       if (name !== undefined) updateData.name = name;
+      if (image !== undefined) updateData.image = image;
 
       await db.collection('user').updateOne(
         { id: userId },
