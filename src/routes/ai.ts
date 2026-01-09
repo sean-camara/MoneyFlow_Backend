@@ -3,7 +3,8 @@ import { createAuthMiddleware } from '../middleware/auth.js';
 import { 
   parseNaturalLanguageTransaction, 
   parseSubscription, 
-  generateInsights 
+  generateInsights,
+  aiFinancialChat
 } from '../services/openRouterService.js';
 import { Auth } from '../config/auth.js';
 
@@ -68,25 +69,49 @@ export function createAIRoutes(auth: Auth): Router {
   // Generate AI insights
   router.post('/insights', authMiddleware, async (req, res) => {
     try {
-      const { analysisData, forecastData, goalMetrics, settings } = req.body;
+      const { transactions, analysisData, goalMetrics } = req.body;
 
       if (!analysisData) {
         return res.status(400).json({ success: false, error: 'Analysis data is required' });
       }
 
-      const result = await generateInsights(analysisData, forecastData, goalMetrics, settings);
+      const result = await generateInsights(transactions || [], analysisData, goalMetrics);
 
-      res.json({ success: true, data: result });
+      res.json({ success: true, data: { insights: result } });
     } catch (error: any) {
       console.error('Insights generation error:', error);
       res.status(500).json({ 
         success: false, 
         error: error.message || 'Failed to generate insights',
         data: {
-          generalTip: "I'm having trouble connecting to the AI service.",
-          budgetHealth: "Unable to analyze at this time.",
-          runwayAnalysis: "Please try again later."
+          insights: JSON.stringify({
+            generalTip: "I'm having trouble connecting to the AI service.",
+            budgetHealth: "Unable to analyze at this time.",
+            runwayAnalysis: "Please try again later."
+          })
         }
+      });
+    }
+  });
+
+  // AI Chat for financial advice
+  router.post('/chat', authMiddleware, async (req, res) => {
+    try {
+      const { message, history } = req.body;
+
+      if (!message) {
+        return res.status(400).json({ success: false, error: 'Message is required' });
+      }
+
+      const result = await aiFinancialChat(message, history || []);
+
+      res.json({ success: true, data: { response: result } });
+    } catch (error: any) {
+      console.error('AI chat error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message || 'Failed to process chat',
+        data: { response: "I'm having trouble connecting to the AI service. Please try again later." }
       });
     }
   });

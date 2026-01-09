@@ -179,20 +179,17 @@ Return ONLY valid JSON:
 
 // Generate financial insights
 export async function generateInsights(
-  analysisData: any,
-  forecastData: any,
-  goalMetrics?: any,
-  settings?: any
-): Promise<any> {
+  transactions: any[],
+  analysisData: { income: number; expense: number; topCategory: { name: string; amount: number } },
+  goalMetrics?: { name: string; deadline: string; daysLeft: number; remaining: number }
+): Promise<string> {
   let goalSection = '';
   if (goalMetrics) {
     goalSection = `
 ACTIVE GOAL:
 - Name: "${goalMetrics.name}"
-- Deadline: ${goalMetrics.deadline}
-- Amount Needed: ${goalMetrics.remaining}
-- Daily Savings Required: ${goalMetrics.dailyNeeded}
-- Current Daily Surplus: ${goalMetrics.dailySurplus}`;
+- Deadline: ${goalMetrics.deadline} (${goalMetrics.daysLeft} days left)
+- Amount Needed: ${goalMetrics.remaining}`;
   }
 
   const systemPrompt = `You are a warm, friendly financial advisor. Analyze the data and provide insights.
@@ -209,8 +206,8 @@ Return ONLY valid JSON:
   const userPrompt = `Financial Data:
 - Total Spent: ${analysisData.expense}
 - Total Income: ${analysisData.income}
-- Top Expense: ${analysisData.topCategory?.name || 'None'}
-- Runway: ${forecastData?.text || 'Unknown'}
+- Top Expense Category: ${analysisData.topCategory?.name || 'None'} (${analysisData.topCategory?.amount || 0})
+- Number of Transactions: ${transactions?.length || 0}
 ${goalSection}`;
 
   const result = await callOpenRouter([
@@ -218,65 +215,27 @@ ${goalSection}`;
     { role: 'user', content: userPrompt }
   ], { jsonMode: true, temperature: 0.5 });
   
-  try {
-    const jsonMatch = result.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    return {
-      generalTip: "I see you're tracking your finances - that's a great first step!",
-      budgetHealth: "Keep monitoring your spending patterns.",
-      runwayAnalysis: "Your financial runway looks stable."
-    };
-  } catch {
-    return {
-      generalTip: "I see you're tracking your finances - that's a great first step!",
-      budgetHealth: "Keep monitoring your spending patterns.",
-      runwayAnalysis: "Your financial runway looks stable."
-    };
-  }
+  // Return the raw AI response string for the frontend to parse
+  return result;
 }
 
 // AI Chat for financial questions
 export async function aiFinancialChat(
   message: string,
-  context: {
-    balance: number;
-    totalIncome: number;
-    totalExpense: number;
-    topCategories: string;
-    recentTransactions: string;
-    goals: string;
-    subscriptions: string;
-    userContributions?: string;
-  },
   history?: Array<{ role: string; content: string }>
 ): Promise<string> {
   const systemPrompt = `You are a warm, empathetic financial assistant for FlowMoney.
-You MUST only answer based on the data provided. If asked about something not in the data, say "I don't have access to that information."
+You are NOT a strict calculator. You are a supportive coach.
+
+TONE: Friendly, Reassuring, Specific.
+- Start answers with "I see...", "I noticed...", "Don't worry...", or "Great job..."
+- If they mention overspending, be gentle. "It looks like spending might be a bit high, maybe we can find some savings?"
+- Never scold the user.
 
 Be friendly, specific, and keep responses under 100 words.
+If the user asks about something you don't know, say "I'd need more information about that."
 
-TODAY: ${new Date().toLocaleDateString()}
-
-USER'S FINANCIAL SUMMARY:
-- Balance: ${context.balance}
-- Total Income: ${context.totalIncome}
-- Total Expenses: ${context.totalExpense}
-
-TOP EXPENSE CATEGORIES:
-${context.topCategories || 'No data yet.'}
-
-RECENT TRANSACTIONS:
-${context.recentTransactions || 'No transactions yet.'}
-
-SAVINGS GOALS:
-${context.goals || 'No goals set.'}
-
-SUBSCRIPTIONS:
-${context.subscriptions || 'No subscriptions.'}
-
-${context.userContributions ? `USER CONTRIBUTIONS:\n${context.userContributions}` : ''}`;
+TODAY: ${new Date().toLocaleDateString()}`;
 
   const messages: OpenRouterMessage[] = [
     { role: 'system', content: systemPrompt }
