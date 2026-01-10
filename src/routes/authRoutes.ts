@@ -1,8 +1,35 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '../config/auth.js';
 import { getDb } from '../config/database.js';
-import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import { promisify } from 'util';
+
+const scryptAsync = promisify(crypto.scrypt);
+
+/**
+ * Verify password using scrypt (better-auth format: salt:hash)
+ */
+async function verifyPassword(inputPassword: string, storedPassword: string): Promise<boolean> {
+  try {
+    const [salt, hash] = storedPassword.split(':');
+    if (!salt || !hash) return false;
+    
+    const derivedKey = await scryptAsync(inputPassword, salt, 64) as Buffer;
+    return derivedKey.toString('hex') === hash;
+  } catch (e) {
+    console.error('Password verification error:', e);
+    return false;
+  }
+}
+
+/**
+ * Hash password using scrypt (better-auth compatible format: salt:hash)
+ */
+async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derivedKey = await scryptAsync(password, salt, 64) as Buffer;
+  return `${salt}:${derivedKey.toString('hex')}`;
+}
 
 /**
  * Custom auth routes that return session tokens in the response body.
@@ -61,8 +88,8 @@ export function createAuthRoutes(_auth: Auth) {
         });
       }
 
-      // Verify password
-      const passwordValid = await bcrypt.compare(password, account.password);
+      // Verify password using scrypt (better-auth format)
+      const passwordValid = await verifyPassword(password, account.password);
       
       if (!passwordValid) {
         console.log('❌ Invalid password for:', email);
@@ -172,9 +199,9 @@ export function createAuthRoutes(_auth: Auth) {
       
       await usersCollection.insertOne(user);
 
-      // Create account with hashed password
+      // Create account with hashed password (scrypt, better-auth compatible)
       const accountsCollection = db.collection('account');
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const hashedPassword = await hashPassword(password);
       
       const account = {
         id: crypto.randomUUID(),
