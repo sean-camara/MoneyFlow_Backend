@@ -31,10 +31,19 @@ export function createAuthRoutes(auth: Auth) {
       }
 
       // Use better-auth's internal sign-in
-      const result = await auth.api.signInEmail({
-        body: { email, password },
-        asResponse: false
-      });
+      let result;
+      try {
+        result = await auth.api.signInEmail({
+          body: { email, password },
+          asResponse: false
+        });
+      } catch (authError: any) {
+        console.error('Better-Auth sign-in error:', authError.message || authError);
+        return res.status(401).json({
+          success: false,
+          error: authError.message || 'Invalid email or password'
+        });
+      }
 
       if (!result || !result.token || !result.user) {
         return res.status(401).json({
@@ -93,10 +102,19 @@ export function createAuthRoutes(auth: Auth) {
       }
 
       // Use better-auth's internal sign-up
-      const result = await auth.api.signUpEmail({
-        body: { email, password, name },
-        asResponse: false
-      });
+      let result;
+      try {
+        result = await auth.api.signUpEmail({
+          body: { email, password, name },
+          asResponse: false
+        });
+      } catch (authError: any) {
+        console.error('Better-Auth sign-up error:', authError.message || authError);
+        return res.status(400).json({
+          success: false,
+          error: authError.message || 'Failed to create account'
+        });
+      }
 
       if (!result || !result.token || !result.user) {
         return res.status(400).json({
