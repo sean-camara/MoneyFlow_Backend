@@ -73,13 +73,23 @@ export function createAuthRoutes(_auth: Auth) {
         });
       }
 
-      // Find account with password hash
+      // Find account with password hash - try both string and ObjectId since better-auth stores as ObjectId
       const accountsCollection = db.collection('account');
-      const userId = user._id?.toString() || user.id;
-      const account = await accountsCollection.findOne({ 
-        userId: userId,
+      const userIdString = user._id?.toString() || user.id;
+      
+      // First try with string
+      let account = await accountsCollection.findOne({ 
+        userId: userIdString,
         providerId: 'credential'
       });
+      
+      // If not found, try with ObjectId
+      if (!account && user._id) {
+        account = await accountsCollection.findOne({ 
+          userId: user._id,
+          providerId: 'credential'
+        });
+      }
       
       if (!account || !account.password) {
         console.log('❌ No password account for user:', email);
