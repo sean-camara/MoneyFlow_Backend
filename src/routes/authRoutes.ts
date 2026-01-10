@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '../config/auth.js';
 import { getDb } from '../config/database.js';
-import bcrypt from 'bcrypt';
+import * as bcrypt from 'bcrypt';
 import crypto from 'crypto';
 
 /**
