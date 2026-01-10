@@ -319,7 +319,7 @@ export function createAuthRoutes(_auth: Auth) {
 
       // Get user data - handle both ObjectId and string userId
       const usersCollection = db.collection('user');
-      let user = null;
+      let user: any = null;
       
       // Check if session.userId is an ObjectId (from better-auth sessions)
       const isObjectId = session.userId && typeof session.userId === 'object' && session.userId._bsontype === 'ObjectId';
