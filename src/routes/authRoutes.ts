@@ -1,19 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '../config/auth.js';
 import { getDb } from '../config/database.js';
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 
 /**
  * Custom auth routes that return session tokens in the response body.
  * This is needed for iOS Safari which blocks third-party cookies.
  * 
- * These routes wrap better-auth functionality and additionally return
- * the session token so clients can store it in localStorage.
+ * iOS Safari's ITP (Intelligent Tracking Prevention) blocks all cross-origin
+ * cookies, which breaks the default cookie-based authentication. These routes
+ * return tokens in the response body that can be stored in localStorage.
  */
-export function createAuthRoutes(auth: Auth) {
+export function createAuthRoutes(_auth: Auth) {
   const router = Router();
-  const db = getDb();
-  const sessionsCollection = db.collection('session');
-  const usersCollection = db.collection('user');
 
   /**
    * POST /api/auth-token/sign-in
@@ -21,71 +21,104 @@ export function createAuthRoutes(auth: Auth) {
    */
   router.post('/sign-in', async (req: Request, res: Response) => {
     try {
-      console.log('📱 Auth-token sign-in request:', { body: req.body, hasBody: !!req.body });
+      const db = getDb();
       const { email, password } = req.body || {};
+      
+      console.log('📱 Auth-token sign-in attempt for:', email);
 
       if (!email || !password) {
-        console.log('❌ Missing email or password');
         return res.status(400).json({
           success: false,
           error: 'Email and password are required'
         });
       }
 
-      // Use better-auth's internal sign-in
-      let result;
-      try {
-        console.log('🔐 Calling better-auth signInEmail for:', email);
-        result = await auth.api.signInEmail({
-          body: { email, password },
-          asResponse: false
-        });
-        console.log('✅ Better-auth result:', { hasToken: !!result?.token, hasUser: !!result?.user });
-      } catch (authError: any) {
-        console.error('❌ Better-Auth sign-in error:', authError.message || authError);
+      // Find user by email
+      const usersCollection = db.collection('user');
+      const user = await usersCollection.findOne({ email: email.toLowerCase() });
+      
+      if (!user) {
+        console.log('❌ User not found:', email);
         return res.status(401).json({
           success: false,
-          error: authError.message || 'Invalid email or password'
+          error: 'Invalid email or password'
         });
       }
 
-      if (!result || !result.token || !result.user) {
+      // Find account with password hash
+      const accountsCollection = db.collection('account');
+      const account = await accountsCollection.findOne({ 
+        userId: user.id,
+        providerId: 'credential'
+      });
+      
+      if (!account || !account.password) {
+        console.log('❌ No password account for user:', email);
         return res.status(401).json({
           success: false,
-          error: 'Invalid credentials'
+          error: 'Invalid email or password'
         });
       }
 
-      // Look up the session in DB for more details
-      const session = await sessionsCollection.findOne({ token: result.token });
+      // Verify password
+      const passwordValid = await bcrypt.compare(password, account.password);
+      
+      if (!passwordValid) {
+        console.log('❌ Invalid password for:', email);
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid email or password'
+        });
+      }
 
-      // Return the session token in the response body for iOS Safari
+      // Create session
+      const sessionsCollection = db.collection('session');
+      const token = crypto.randomBytes(32).toString('hex');
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      
+      const session = {
+        id: crypto.randomUUID(),
+        token,
+        userId: user.id,
+        expiresAt,
+        createdAt: now,
+        updatedAt: now,
+        ipAddress: req.ip || req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+      };
+      
+      await sessionsCollection.insertOne(session);
+      
+      console.log('✅ Session created for user:', user.id);
+
+      // Return the session token
       res.json({
         success: true,
-        token: result.token,
+        token: session.token,
         user: {
-          id: result.user.id,
-          email: result.user.email,
-          name: result.user.name,
-          image: result.user.image,
-          primaryCurrency: result.user.primaryCurrency,
-          notificationsEnabled: result.user.notificationsEnabled,
-          emailVerified: result.user.emailVerified,
-          createdAt: result.user.createdAt,
-          updatedAt: result.user.updatedAt,
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          image: user.image,
+          primaryCurrency: user.primaryCurrency,
+          notificationsEnabled: user.notificationsEnabled,
+          emailVerified: user.emailVerified,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
         },
-        session: session ? {
-          id: session.id || session._id?.toString(),
+        session: {
+          id: session.id,
           userId: session.userId,
           expiresAt: session.expiresAt,
           createdAt: session.createdAt,
-        } : null
+        }
       });
     } catch (error: any) {
       console.error('Sign-in error:', error);
-      res.status(401).json({
+      res.status(500).json({
         success: false,
-        error: error.message || 'Invalid credentials'
+        error: 'An error occurred during sign in'
       });
     }
   });
@@ -96,7 +129,10 @@ export function createAuthRoutes(auth: Auth) {
    */
   router.post('/sign-up', async (req: Request, res: Response) => {
     try {
-      const { email, password, name } = req.body;
+      const db = getDb();
+      const { email, password, name } = req.body || {};
+      
+      console.log('📱 Auth-token sign-up attempt for:', email);
 
       if (!email || !password) {
         return res.status(400).json({
@@ -105,58 +141,98 @@ export function createAuthRoutes(auth: Auth) {
         });
       }
 
-      // Use better-auth's internal sign-up
-      let result;
-      try {
-        result = await auth.api.signUpEmail({
-          body: { email, password, name },
-          asResponse: false
-        });
-      } catch (authError: any) {
-        console.error('Better-Auth sign-up error:', authError.message || authError);
+      // Check if user already exists
+      const usersCollection = db.collection('user');
+      const existingUser = await usersCollection.findOne({ email: email.toLowerCase() });
+      
+      if (existingUser) {
         return res.status(400).json({
           success: false,
-          error: authError.message || 'Failed to create account'
+          error: 'User already exists'
         });
       }
 
-      if (!result || !result.token || !result.user) {
-        return res.status(400).json({
-          success: false,
-          error: 'Failed to create account'
-        });
-      }
+      // Create user
+      const userId = crypto.randomUUID();
+      const now = new Date();
+      
+      const user = {
+        id: userId,
+        email: email.toLowerCase(),
+        name: name || email.split('@')[0],
+        emailVerified: false,
+        createdAt: now,
+        updatedAt: now,
+        primaryCurrency: 'USD',
+        notificationsEnabled: true,
+        image: null,
+      };
+      
+      await usersCollection.insertOne(user);
 
-      // Look up the session in DB for more details
-      const session = await sessionsCollection.findOne({ token: result.token });
+      // Create account with hashed password
+      const accountsCollection = db.collection('account');
+      const hashedPassword = await bcrypt.hash(password, 10);
+      
+      const account = {
+        id: crypto.randomUUID(),
+        userId,
+        accountId: userId,
+        providerId: 'credential',
+        password: hashedPassword,
+        createdAt: now,
+        updatedAt: now,
+      };
+      
+      await accountsCollection.insertOne(account);
 
-      // Return the session token in the response body for iOS Safari
+      // Create session
+      const sessionsCollection = db.collection('session');
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      
+      const session = {
+        id: crypto.randomUUID(),
+        token,
+        userId,
+        expiresAt,
+        createdAt: now,
+        updatedAt: now,
+        ipAddress: req.ip || req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+      };
+      
+      await sessionsCollection.insertOne(session);
+      
+      console.log('✅ User created:', userId);
+
+      // Return the session token
       res.json({
         success: true,
-        token: result.token,
+        token: session.token,
         user: {
-          id: result.user.id,
-          email: result.user.email,
-          name: result.user.name,
-          image: result.user.image,
-          primaryCurrency: result.user.primaryCurrency,
-          notificationsEnabled: result.user.notificationsEnabled,
-          emailVerified: result.user.emailVerified,
-          createdAt: result.user.createdAt,
-          updatedAt: result.user.updatedAt,
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          image: user.image,
+          primaryCurrency: user.primaryCurrency,
+          notificationsEnabled: user.notificationsEnabled,
+          emailVerified: user.emailVerified,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
         },
-        session: session ? {
-          id: session.id || session._id?.toString(),
+        session: {
+          id: session.id,
           userId: session.userId,
           expiresAt: session.expiresAt,
           createdAt: session.createdAt,
-        } : null
+        }
       });
     } catch (error: any) {
       console.error('Sign-up error:', error);
-      res.status(400).json({
+      res.status(500).json({
         success: false,
-        error: error.message || 'Failed to create account'
+        error: 'An error occurred during sign up'
       });
     }
   });
@@ -167,6 +243,8 @@ export function createAuthRoutes(auth: Auth) {
    */
   router.get('/session', async (req: Request, res: Response) => {
     try {
+      const db = getDb();
+      
       // Check Authorization header for Bearer token
       const authHeader = req.headers.authorization;
       let token: string | null = null;
@@ -183,6 +261,7 @@ export function createAuthRoutes(auth: Auth) {
       }
 
       // Look up session by token
+      const sessionsCollection = db.collection('session');
       const session = await sessionsCollection.findOne({ token });
 
       if (!session) {
@@ -203,6 +282,7 @@ export function createAuthRoutes(auth: Auth) {
       }
 
       // Get user data
+      const usersCollection = db.collection('user');
       const user = await usersCollection.findOne({ id: session.userId });
 
       if (!user) {
@@ -247,6 +327,8 @@ export function createAuthRoutes(auth: Auth) {
    */
   router.post('/sign-out', async (req: Request, res: Response) => {
     try {
+      const db = getDb();
+      
       // Check Authorization header for Bearer token
       const authHeader = req.headers.authorization;
       let token: string | null = null;
@@ -257,7 +339,9 @@ export function createAuthRoutes(auth: Auth) {
 
       if (token) {
         // Delete the session
+        const sessionsCollection = db.collection('session');
         await sessionsCollection.deleteOne({ token });
+        console.log('✅ Session invalidated');
       }
 
       res.json({
