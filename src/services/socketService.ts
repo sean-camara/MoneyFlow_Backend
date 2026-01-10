@@ -7,16 +7,52 @@ let io: Server | null = null;
 const userRooms = new Map<string, Set<string>>();
 
 export function initializeSocketService(httpServer: HttpServer): Server {
+  // Get allowed origins from environment or defaults
+  const allowedOrigins = [
+    process.env.FRONTEND_URL || 'http://localhost:5173',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://money-flow-six.vercel.app',
+  ];
+
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, etc.)
+        if (!origin) return callback(null, true);
+        
+        // Allow exact matches
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        
+        // Allow all Vercel preview deployments
+        if (origin.endsWith('.vercel.app')) {
+          return callback(null, true);
+        }
+        
+        // Log blocked origins for debugging
+        console.log('🚫 Socket CORS blocked origin:', origin);
+        callback(null, false);
+      },
       methods: ['GET', 'POST'],
       credentials: true
-    }
+    },
+    // iOS Safari compatibility - force polling first, then upgrade to websocket
+    transports: ['polling', 'websocket'],
+    // Allow upgrade from polling to websocket
+    allowUpgrades: true,
+    // Increase timeouts for mobile networks
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    // Connection timeout
+    connectTimeout: 45000,
+    // Allow EIO4 for better iOS compatibility
+    allowEIO3: true,
   });
 
   io.on('connection', (socket: Socket) => {
-    console.log('🔌 Client connected:', socket.id);
+    console.log('🔌 Client connected:', socket.id, '- Transport:', socket.conn.transport.name);
 
     // User joins their personal room (for receiving invites)
     socket.on('join-user', (userId: string) => {
