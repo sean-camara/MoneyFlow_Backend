@@ -104,7 +104,10 @@ export function createAuthRoutes(_auth: Auth) {
       const token = crypto.randomBytes(32).toString('hex');
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
-      const finalUserId = user._id?.toString() || user.id;
+      
+      // Ensure userId is a string (not ObjectId)
+      const finalUserId = String(user._id || user.id);
+      console.log('📱 Creating session for userId:', finalUserId, 'type:', typeof finalUserId);
       
       const session = {
         id: crypto.randomUUID(),
@@ -313,11 +316,19 @@ export function createAuthRoutes(_auth: Auth) {
       // Get user data - try both id and _id since better-auth uses id, MongoDB uses _id
       const usersCollection = db.collection('user');
       const { ObjectId } = await import('mongodb');
-      let user = await usersCollection.findOne({ id: session.userId });
+      
+      // Convert userId to string if it's an ObjectId
+      const sessionUserId = typeof session.userId === 'object' 
+        ? session.userId.toString() 
+        : session.userId;
+      
+      console.log('📱 Looking up user for session, userId:', sessionUserId);
+      
+      let user = await usersCollection.findOne({ id: sessionUserId });
       if (!user) {
         // Try finding by _id if session.userId is an ObjectId string
         try {
-          user = await usersCollection.findOne({ _id: new ObjectId(session.userId) });
+          user = await usersCollection.findOne({ _id: new ObjectId(sessionUserId) });
         } catch (e) {
           // Invalid ObjectId, user not found
         }
