@@ -69,6 +69,7 @@ function getHeadersFromRequest(req: Request): Headers {
 async function verifyTokenFromDb(token: string): Promise<SessionData | null> {
   try {
     const { getDb } = await import('../config/database.js');
+    const { ObjectId } = await import('mongodb');
     const db = getDb();
     
     // Find session by token
@@ -80,19 +81,28 @@ async function verifyTokenFromDb(token: string): Promise<SessionData | null> {
       return null;
     }
     
-    // Get user
-    const user = await db.collection('user').findOne({ id: session.userId });
+    // Get user - try both id and _id since better-auth uses id, MongoDB uses _id
+    let user = await db.collection('user').findOne({ id: session.userId });
+    if (!user) {
+      // Try finding by _id if session.userId is an ObjectId string
+      try {
+        user = await db.collection('user').findOne({ _id: new ObjectId(session.userId) });
+      } catch (e) {
+        // Invalid ObjectId, continue
+      }
+    }
     if (!user) return null;
 
+    const userId = user._id?.toString() || user.id;
     return {
       session: {
         id: session.id,
-        userId: session.userId,
+        userId: userId,
         token: session.token,
         expiresAt: session.expiresAt,
       },
       user: {
-        id: user.id,
+        id: userId,
         email: user.email,
         name: user.name,
         primaryCurrency: user.primaryCurrency,

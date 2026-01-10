@@ -47,8 +47,9 @@ export function createAuthRoutes(_auth: Auth) {
 
       // Find account with password hash
       const accountsCollection = db.collection('account');
+      const userId = user._id?.toString() || user.id;
       const account = await accountsCollection.findOne({ 
-        userId: user.id,
+        userId: userId,
         providerId: 'credential'
       });
       
@@ -76,11 +77,12 @@ export function createAuthRoutes(_auth: Auth) {
       const token = crypto.randomBytes(32).toString('hex');
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const finalUserId = user._id?.toString() || user.id;
       
       const session = {
         id: crypto.randomUUID(),
         token,
-        userId: user.id,
+        userId: finalUserId,
         expiresAt,
         createdAt: now,
         updatedAt: now,
@@ -90,14 +92,14 @@ export function createAuthRoutes(_auth: Auth) {
       
       await sessionsCollection.insertOne(session);
       
-      console.log('✅ Session created for user:', user.id);
+      console.log('✅ Session created for user:', finalUserId);
 
       // Return the session token
       res.json({
         success: true,
         token: session.token,
         user: {
-          id: user.id,
+          id: finalUserId,
           email: user.email,
           name: user.name,
           image: user.image,
@@ -281,9 +283,18 @@ export function createAuthRoutes(_auth: Auth) {
         });
       }
 
-      // Get user data
+      // Get user data - try both id and _id since better-auth uses id, MongoDB uses _id
       const usersCollection = db.collection('user');
-      const user = await usersCollection.findOne({ id: session.userId });
+      const { ObjectId } = await import('mongodb');
+      let user = await usersCollection.findOne({ id: session.userId });
+      if (!user) {
+        // Try finding by _id if session.userId is an ObjectId string
+        try {
+          user = await usersCollection.findOne({ _id: new ObjectId(session.userId) });
+        } catch (e) {
+          // Invalid ObjectId, user not found
+        }
+      }
 
       if (!user) {
         return res.status(401).json({
@@ -292,10 +303,11 @@ export function createAuthRoutes(_auth: Auth) {
         });
       }
 
+      const returnUserId = user._id?.toString() || user.id;
       res.json({
         success: true,
         user: {
-          id: user.id,
+          id: returnUserId,
           email: user.email,
           name: user.name,
           image: user.image,
