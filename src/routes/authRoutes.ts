@@ -36,17 +36,20 @@ export function createAuthRoutes(auth: Auth) {
         asResponse: false
       });
 
-      if (!result || !result.session || !result.user) {
+      if (!result || !result.token || !result.user) {
         return res.status(401).json({
           success: false,
           error: 'Invalid credentials'
         });
       }
 
+      // Look up the session in DB for more details
+      const session = await sessionsCollection.findOne({ token: result.token });
+
       // Return the session token in the response body for iOS Safari
       res.json({
         success: true,
-        token: result.session.token,
+        token: result.token,
         user: {
           id: result.user.id,
           email: result.user.email,
@@ -58,12 +61,12 @@ export function createAuthRoutes(auth: Auth) {
           createdAt: result.user.createdAt,
           updatedAt: result.user.updatedAt,
         },
-        session: {
-          id: result.session.id,
-          userId: result.session.userId,
-          expiresAt: result.session.expiresAt,
-          createdAt: result.session.createdAt,
-        }
+        session: session ? {
+          id: session.id || session._id?.toString(),
+          userId: session.userId,
+          expiresAt: session.expiresAt,
+          createdAt: session.createdAt,
+        } : null
       });
     } catch (error: any) {
       console.error('Sign-in error:', error);
@@ -95,17 +98,20 @@ export function createAuthRoutes(auth: Auth) {
         asResponse: false
       });
 
-      if (!result || !result.session || !result.user) {
+      if (!result || !result.token || !result.user) {
         return res.status(400).json({
           success: false,
           error: 'Failed to create account'
         });
       }
 
+      // Look up the session in DB for more details
+      const session = await sessionsCollection.findOne({ token: result.token });
+
       // Return the session token in the response body for iOS Safari
       res.json({
         success: true,
-        token: result.session.token,
+        token: result.token,
         user: {
           id: result.user.id,
           email: result.user.email,
@@ -117,12 +123,12 @@ export function createAuthRoutes(auth: Auth) {
           createdAt: result.user.createdAt,
           updatedAt: result.user.updatedAt,
         },
-        session: {
-          id: result.session.id,
-          userId: result.session.userId,
-          expiresAt: result.session.expiresAt,
-          createdAt: result.session.createdAt,
-        }
+        session: session ? {
+          id: session.id || session._id?.toString(),
+          userId: session.userId,
+          expiresAt: session.expiresAt,
+          createdAt: session.createdAt,
+        } : null
       });
     } catch (error: any) {
       console.error('Sign-up error:', error);
