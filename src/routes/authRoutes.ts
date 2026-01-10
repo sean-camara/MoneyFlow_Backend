@@ -3,6 +3,7 @@ import { Auth } from '../config/auth.js';
 import { getDb } from '../config/database.js';
 import * as crypto from 'crypto';
 import { promisify } from 'util';
+import { ObjectId } from 'mongodb';
 
 const scryptAsync = promisify(crypto.scrypt);
 
@@ -315,7 +316,6 @@ export function createAuthRoutes(_auth: Auth) {
 
       // Get user data - try both id and _id since better-auth uses id, MongoDB uses _id
       const usersCollection = db.collection('user');
-      const { ObjectId } = await import('mongodb');
       
       // Convert userId to string if it's an ObjectId
       const sessionUserId = typeof session.userId === 'object' 
