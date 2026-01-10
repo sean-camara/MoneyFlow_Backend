@@ -21,9 +21,11 @@ export function createAuthRoutes(auth: Auth) {
    */
   router.post('/sign-in', async (req: Request, res: Response) => {
     try {
-      const { email, password } = req.body;
+      console.log('📱 Auth-token sign-in request:', { body: req.body, hasBody: !!req.body });
+      const { email, password } = req.body || {};
 
       if (!email || !password) {
+        console.log('❌ Missing email or password');
         return res.status(400).json({
           success: false,
           error: 'Email and password are required'
@@ -33,12 +35,14 @@ export function createAuthRoutes(auth: Auth) {
       // Use better-auth's internal sign-in
       let result;
       try {
+        console.log('🔐 Calling better-auth signInEmail for:', email);
         result = await auth.api.signInEmail({
           body: { email, password },
           asResponse: false
         });
+        console.log('✅ Better-auth result:', { hasToken: !!result?.token, hasUser: !!result?.user });
       } catch (authError: any) {
-        console.error('Better-Auth sign-in error:', authError.message || authError);
+        console.error('❌ Better-Auth sign-in error:', authError.message || authError);
         return res.status(401).json({
           success: false,
           error: authError.message || 'Invalid email or password'
