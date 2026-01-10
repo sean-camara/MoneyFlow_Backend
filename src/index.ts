@@ -17,7 +17,8 @@ import {
   createInsightsRoutes,
   createPushRoutes,
   createUserRoutes,
-  createAIRoutes
+  createAIRoutes,
+  createAuthRoutes
 } from './routes/index.js';
 
 const app = express();
@@ -81,13 +82,14 @@ async function startServer() {
     // Health check endpoint
     app.get('/api/health', (req, res) => {
       res.json({ 
-        success: true, 
+              success: true, 
         message: 'FlowMoney API is running',
         timestamp: new Date().toISOString()
       });
     });
 
     // API Routes
+    app.use('/api/auth-token', createAuthRoutes(auth)); // Token-based auth for iOS Safari
     app.use('/api/joint-accounts', createJointAccountRoutes(auth));
     app.use('/api/transactions', createTransactionRoutes(auth));
     app.use('/api/goals', createGoalRoutes(auth));
