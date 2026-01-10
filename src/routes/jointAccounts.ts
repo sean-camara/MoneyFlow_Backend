@@ -13,6 +13,7 @@ import {
   Currency 
 } from '../types/index.js';
 import { Auth } from '../config/auth.js';
+import { findUserById } from '../utils/userLookup.js';
 
 export function createJointAccountRoutes(auth: Auth): Router {
   const router = Router();
@@ -402,7 +403,7 @@ export function createJointAccountRoutes(auth: Auth): Router {
 
       // Get account and user info for socket events
       const account = await db.collection<JointAccount>('jointAccounts').findOne({ id: invite.jointAccountId });
-      const user = await db.collection('user').findOne({ id: userId });
+      const user = await findUserById(userId, db);
 
       if (accept) {
         // Create membership
@@ -539,7 +540,7 @@ export function createJointAccountRoutes(auth: Auth): Router {
 
       // Notify admin if a member left voluntarily
       if (isSelf && !isAdmin) {
-        const user = await db.collection('user').findOne({ id: userId });
+        const user = await findUserById(userId, db);
         await sendNotificationToUser(account.adminUserId, {
           title: `👋 ${user?.name || 'A member'} left`,
           body: `They are no longer a member of "${account.name}"`,

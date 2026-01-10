@@ -5,6 +5,7 @@ import { requireJointAccountMember } from '../middleware/jointAccount.js';
 import { notifyJointAccountMembers } from '../services/pushService.js';
 import { Goal } from '../types/index.js';
 import { Auth } from '../config/auth.js';
+import { findUserById } from '../utils/userLookup.js';
 
 export function createGoalRoutes(auth: Auth): Router {
   const router = Router();
@@ -54,7 +55,7 @@ export function createGoalRoutes(auth: Auth): Router {
       }
 
       // Get user info for notification
-      const user = await db.collection('user').findOne({ id: userId });
+      const user = await findUserById(userId, db);
 
       const now = new Date();
       const goal: Goal = {
@@ -114,7 +115,7 @@ export function createGoalRoutes(auth: Auth): Router {
       }
 
       // Get user info for notification
-      const user = await db.collection('user').findOne({ id: userId });
+      const user = await findUserById(userId, db);
 
       const updateData: Partial<Goal> = { updatedAt: new Date() };
       if (name !== undefined) updateData.name = name;

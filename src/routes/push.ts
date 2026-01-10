@@ -10,6 +10,7 @@ import {
 import { sendFcmNotification, isFirebaseInitialized } from '../services/firebaseService.js';
 import { Auth } from '../config/auth.js';
 import { getDb } from '../config/database.js';
+import { findUserById } from '../utils/userLookup.js';
 
 export function createPushRoutes(auth: Auth): Router {
   const router = Router();
@@ -106,7 +107,7 @@ export function createPushRoutes(auth: Auth): Router {
       let subscriptionData = null;
       
       // Try to find subscription in user collection first
-      const user = await db.collection('user').findOne({ id: userId });
+      const user = await findUserById(userId, db);
       if (user?.pushSubscription) {
         console.log('Found subscription in user collection');
         subscriptionData = user.pushSubscription;

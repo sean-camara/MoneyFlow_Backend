@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../config/database.js';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { Auth } from '../config/auth.js';
+import { findUserById, updateUserById } from '../utils/userLookup.js';
 
 export function createUserRoutes(auth: Auth): Router {
   const router = Router();
@@ -56,10 +57,9 @@ export function createUserRoutes(auth: Auth): Router {
   // Get current user profile
   router.get('/me', authMiddleware, async (req, res) => {
     try {
-      const db = getDb();
       const userId = req.user!.id;
 
-      const user = await db.collection('user').findOne({ id: userId });
+      const user = await findUserById(userId);
 
       if (!user) {
         return res.status(404).json({ success: false, error: 'User not found' });
@@ -67,6 +67,9 @@ export function createUserRoutes(auth: Auth): Router {
 
       // Don't send sensitive data
       const { password, pushSubscription, ...safeUser } = user;
+      
+      // Ensure id is included in response
+      safeUser.id = user._id?.toString() || user.id;
 
       res.json({ success: true, data: safeUser });
     } catch (error) {
@@ -78,7 +81,6 @@ export function createUserRoutes(auth: Auth): Router {
   // Update user preferences
   router.put('/preferences', authMiddleware, async (req, res) => {
     try {
-      const db = getDb();
       const userId = req.user!.id;
       const { primaryCurrency, notificationsEnabled, name, image } = req.body;
 
@@ -89,13 +91,15 @@ export function createUserRoutes(auth: Auth): Router {
       if (name !== undefined) updateData.name = name;
       if (image !== undefined) updateData.image = image;
 
-      await db.collection('user').updateOne(
-        { id: userId },
-        { $set: updateData }
-      );
+      await updateUserById(userId, updateData);
 
-      const updated = await db.collection('user').findOne({ id: userId }) as Record<string, any> | null;
+      const updated = await findUserById(userId) as Record<string, any> | null;
       const { password, pushSubscription, ...safeUser } = updated || {} as Record<string, any>;
+      
+      // Ensure id is included in response
+      if (updated) {
+        safeUser.id = updated._id?.toString() || updated.id;
+      }
 
       res.json({ success: true, data: safeUser });
     } catch (error) {
