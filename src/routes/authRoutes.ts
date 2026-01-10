@@ -322,15 +322,19 @@ export function createAuthRoutes(_auth: Auth) {
         ? session.userId.toString() 
         : session.userId;
       
-      console.log('📱 Looking up user for session, userId:', sessionUserId);
+      console.log('📱 Session lookup - userId:', sessionUserId, 'type:', typeof session.userId);
       
       let user = await usersCollection.findOne({ id: sessionUserId });
+      console.log('📱 User by id:', user ? 'FOUND' : 'NOT FOUND');
+      
       if (!user) {
         // Try finding by _id if session.userId is an ObjectId string
         try {
+          console.log('📱 Trying _id lookup with ObjectId:', sessionUserId);
           user = await usersCollection.findOne({ _id: new ObjectId(sessionUserId) });
-        } catch (e) {
-          // Invalid ObjectId, user not found
+          console.log('📱 User by _id:', user ? 'FOUND - ' + user.email : 'NOT FOUND');
+        } catch (e: any) {
+          console.log('📱 ObjectId lookup error:', e.message);
         }
       }
 
