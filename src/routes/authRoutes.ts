@@ -317,34 +317,51 @@ export function createAuthRoutes(_auth: Auth) {
         });
       }
 
-      // Get user data - try both id and _id since better-auth uses id, MongoDB uses _id
+      // Get user data - handle both ObjectId and string userId
       const usersCollection = db.collection('user');
+      let user = null;
       
-      // Convert userId to string if it's an ObjectId
-      const sessionUserId = typeof session.userId === 'object' 
-        ? session.userId.toString() 
-        : session.userId;
+      // Check if session.userId is an ObjectId (from better-auth sessions)
+      const isObjectId = session.userId && typeof session.userId === 'object' && session.userId._bsontype === 'ObjectId';
       
-      console.log('📱 Session lookup - userId:', sessionUserId, 'type:', typeof session.userId);
-      
-      let user = await usersCollection.findOne({ id: sessionUserId });
-      console.log('📱 User by id:', user ? 'FOUND' : 'NOT FOUND');
+      if (isObjectId) {
+        // userId is already an ObjectId, use it directly
+        user = await usersCollection.findOne({ _id: session.userId });
+        console.log('📱 User by ObjectId directly:', user ? 'FOUND - ' + user.email : 'NOT FOUND');
+      }
       
       if (!user) {
-        // Try finding by _id if session.userId is an ObjectId string
-        try {
-          console.log('📱 Trying _id lookup with ObjectId:', sessionUserId);
-          user = await usersCollection.findOne({ _id: new ObjectId(sessionUserId) });
-          console.log('📱 User by _id:', user ? 'FOUND - ' + user.email : 'NOT FOUND');
-        } catch (e: any) {
-          console.log('📱 ObjectId lookup error:', e.message);
+        // Convert to string and try both id and _id
+        const sessionUserId = typeof session.userId === 'object' 
+          ? session.userId.toString() 
+          : session.userId;
+        
+        console.log('📱 Session lookup - userId string:', sessionUserId);
+        
+        // Try finding by id field (for new sign-ups that use UUID)
+        user = await usersCollection.findOne({ id: sessionUserId });
+        console.log('📱 User by id:', user ? 'FOUND' : 'NOT FOUND');
+        
+        if (!user) {
+          // Try finding by _id with ObjectId
+          try {
+            user = await usersCollection.findOne({ _id: new ObjectId(sessionUserId) });
+            console.log('📱 User by _id:', user ? 'FOUND - ' + user.email : 'NOT FOUND');
+          } catch (e: any) {
+            console.log('📱 ObjectId lookup error:', e.message);
+          }
         }
       }
 
       if (!user) {
         return res.status(401).json({
           success: false,
-          error: 'User not found'
+          error: 'User not found',
+          debug: {
+            userIdType: typeof session.userId,
+            isObjectId,
+            userId: session.userId?.toString?.() || String(session.userId)
+          }
         });
       }
 
