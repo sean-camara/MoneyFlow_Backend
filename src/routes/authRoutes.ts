@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Auth } from '../config/auth.js';
 import { getDb } from '../config/database.js';
 import * as bcrypt from 'bcrypt';
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 
 /**
  * Custom auth routes that return session tokens in the response body.
