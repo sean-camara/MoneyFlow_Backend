@@ -275,11 +275,14 @@ export function createAuthRoutes(_auth: Auth) {
    * Get current session from token (for iOS Safari localStorage fallback)
    */
   router.get('/session', async (req: Request, res: Response) => {
+    console.log('📱 AUTH-TOKEN SESSION ENDPOINT HIT');
     try {
       const db = getDb();
+      console.log('📱 Got DB connection');
       
       // Check Authorization header for Bearer token
       const authHeader = req.headers.authorization;
+      console.log('📱 Auth header:', authHeader ? 'present' : 'missing');
       let token: string | null = null;
 
       if (authHeader && authHeader.startsWith('Bearer ')) {
